@@ -6,12 +6,20 @@ from orderbook import OrderBook
 
 class bettor:
     # Wordy but this allows us to more easily change the default values of bettors we initialise
-    def __init__(self, budget = np.random.uniform(100,1000), market_valuation = np.random.normal(0.5,0.05),
-                 n_contracts = 0, risk_av = np.random.uniform(0,1), stubbornness = np.clip(np.random.normal(0.3,0.05),0,1),#np.random.uniform(0,1), 
-                 expertise = np.clip(np.random.normal(0.9, 0.04),0.8,1),
-                 market_imitation=0,
-                 bias = 0,
-                 whale=False):
+    def __init__(self, budget=None, market_valuation=None, n_contracts=0, risk_av=None,
+                 stubbornness=None, expertise=None, market_imitation=0, bias=0, whale=False):
+        # Random defaults are drawn here, per bettor. (Defaults written in the signature are evaluated
+        # once, when the class is defined, so every bettor would share the same draw.)
+        if budget is None:
+            budget = np.random.uniform(100, 1000)
+        if market_valuation is None:
+            market_valuation = np.random.normal(0.5, 0.05)
+        if risk_av is None:
+            risk_av = np.random.uniform(0, 1)
+        if stubbornness is None:
+            stubbornness = np.clip(np.random.normal(0.3, 0.05), 0, 1)
+        if expertise is None:
+            expertise = np.clip(np.random.normal(0.9, 0.04), 0.8, 1)
         self.budget = budget # Their personal contract valuation - this will ultimately depend on their beliefs and evolve in relation to market activity
         self.market_valuation = market_valuation
                 # The number of contracts currently held
@@ -79,21 +87,37 @@ class bettor:
             # ensure value is within range [0,1]
             self.market_valuation = np.clip(self.market_valuation, 0, 1)
 
+    def reservation_price(self):
+        '''
+        Price at which a marginal trade leaves expected utility unchanged: the solution of
+        d exp_utility / d new_c = 0 at new_c = 0, i.e.
+            r = v u'(W_yes) / (v u'(W_yes) + (1 - v) u'(W_no)),  with u'(w) = w^(-risk_av),
+        where W_yes = budget + n_contracts and W_no = budget. With no holdings r = market_valuation.
+        A long YES position lowers r and a short position raises it, because risk aversion makes
+        the agent value an extra dollar less in the state where it is already richer.
+        The optimiser trade(p) buys when p < r and sells when p > r (up to integer rounding).
+        '''
+        v = self.market_valuation
+        w_yes, w_no = self.budget + self.n_contracts, self.budget
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return v / (v + (1 - v) * (w_yes / w_no) ** self.risk_av)
+
     def limit_order(self, ref_price, ob, rng, max_markup=0.05):
         '''
         CLOB order decision (Chiarella & Iori 2002 style), re-using the existing CRRA demand.
-        Side: buy if own valuation > reference price (mid / last trade), sell if below.
-        Limit price: own valuation shaded by a random markup k ~ U(0, max_markup), so buyers bid
-        below and sellers ask above what they think the contract is worth.
+        Side: buy if the reservation price exceeds the reference price, sell if below. This is the
+        sign of the utility-optimal trade at the reference price, so it accounts for current holdings.
+        Limit price: reservation price shaded by a random markup k ~ U(0, max_markup), so buyers bid
+        below and sellers ask above the price at which they are indifferent.
         Quantity: the existing utility-maximising trade() evaluated AT the limit price, so any fill
         (always at the limit price or better) is one the bettor is happy with.
         Return: (side, limit_price, qty) or None
         '''
-        v = self.market_valuation
-        side = int(np.sign(v - ref_price))
-        if side == 0:
+        r = self.reservation_price()
+        if np.isnan(r) or r == ref_price:
             return None
-        p = ob.round_price(v - side * rng.uniform(0, max_markup), side)
+        side = int(np.sign(r - ref_price))
+        p = ob.round_price(r - side * rng.uniform(0, max_markup), side)
         q = self.trade(p)
         if np.sign(q) != side:
             return None
@@ -374,57 +398,127 @@ def run_market_fixed_el(n_bettors, t_election, initial_price, outcome_uncertaint
 
 
 
-def run_market_lob(n_bettors, t_election, initial_price, outcome_uncertainty, bettors, k=1,
-                   market_error=0, gen_el=None, tick=0.01, ttl=5, max_markup=0.05,
-                   price_rule='mid', rng=None):
+def worst_case_wealth(agent, signed_qty=0, price=0.0):
     '''
-    Drop-in alternative to run_market() in which the price is formed by a continuous double
-    auction on a central limit order book, replacing manage_orders() + set_market_price().
+    Terminal wealth in the worse of the two outcomes if the agent trades signed_qty contracts at price.
+    YES pays 1: W_yes = C + Q.  NO pays 0: W_no = C.  A position is fully collateralised iff this is >= 0.
+    '''
+    cash = agent.budget - signed_qty * price
+    contracts = agent.n_contracts + signed_qty
+    return min(cash + contracts, cash)
 
-    Within each period t, bettors are activated once each in random order (asynchronous updating).
-    An activated bettor who wants to trade cancels any live order and submits a new limit order;
-    marketable orders execute immediately at resting prices, the rest stays in the book for `ttl`
-    periods. The period's market price is the end-of-period mid-quote (price_rule='mid') or the
-    last traded price ('last'). Beliefs then update exactly as before.
+
+def run_market_lob(n_bettors, t_election, initial_price, outcome_uncertainty, bettors,
+                   k=1, market_error=0, gen_el=None, tick=0.01, ttl=5, max_markup=0.05,
+                   price_rule="mid", rng=None, convergence_tolerance=0.02,
+                   convergence_window=5, reference_timescale=None):
     '''
-    rng = rng if rng is not None else np.random.default_rng()
+    Run the prediction market with a persistent central limit order book (CLOB).
+
+    Each period: expire old orders, activate agents one at a time in random order, record the
+    end-of-period book, then update beliefs. An activated agent cancels its resting order, observes
+    the live book (including orders placed earlier in the same period), and may submit one new
+    order. Because every agent is activated every period, an order rests for at most one period
+    unless ttl = 1 removes it sooner.
+
+    Period-level series (length t_election) are stored in the returned dict alongside the
+    original outputs (length t_election + 1). The recorded midquote is NaN whenever one side of
+    the book is empty; the reference price agents use is OrderBook.mid() (see its fallbacks).
+    '''
+    from collections import defaultdict
+    from convergence import first_passage_convergence, dimensionless_time
+
+    if rng is None:
+        rng = np.random.default_rng()
+    if price_rule not in ("mid", "last"):
+        raise ValueError("price_rule must be 'mid' or 'last'")
+    if ttl < 1:
+        raise ValueError("ttl must be >= 1")
     if gen_el is None:
         gen_el = gen_election(initial_price, t_election, outcome_uncertainty)
+    gen_el = np.asarray(gen_el, dtype=float)
+    if len(gen_el) < t_election:
+        raise ValueError("gen_el must contain at least t_election values")
+
     ob = OrderBook(tick=tick)
-    mkt_price = initial_price + market_error
+    mkt_price = float(initial_price + market_error)
+    if not 0 <= mkt_price <= 1:
+        raise ValueError("Initial reference price must be in [0, 1]")
+
+    # Trades only move cash and contracts between agents, so both totals are conserved.
+    total_cash = sum(b.budget for b in bettors)
+    total_contracts = sum(b.n_contracts for b in bettors)
 
     price_history = [mkt_price]
-    vol_history = [sum(np.abs(b.n_contracts) for b in bettors)]
+    vol_history = [sum(abs(b.n_contracts) for b in bettors)]
     beliefs = [np.mean([b.market_valuation for b in bettors])]
     beliefs_weighted = [np.average([b.market_valuation for b in bettors], weights=[b.budget for b in bettors])]
-    market_pressure, net_supply = [0], [0]
-    spread, traded_volume, n_trades, last_trade = [], [], [], []
+    history = defaultdict(list)   # one entry per period for every diagnostic below
 
     for t in range(t_election):
-        ob.expire(t)
-        net_flow, order_vol, step_vol, step_trades = 0, 0, 0, 0
+        expired = ob.expire(t)
+        period = {
+            "submitted_buy_volume": 0, "submitted_sell_volume": 0,
+            "n_buy_orders": 0, "n_sell_orders": 0,
+            "traded_volume": 0, "n_trades": 0,
+            "n_cancelled": 0, "n_expired": len(expired),
+            # What each agent's utility optimiser wants at the reference price it observes,
+            # and how limit_order() translated that into an order.
+            "n_want_buy": 0, "n_want_sell": 0,
+            "n_desired_trade_dropped": 0,      # optimiser wants to trade, limit_order() returned None
+            "n_side_flipped": 0,               # order side opposite to optimiser's desired trade
+            "n_collateral_rejected": 0,        # order would leave worst-case wealth negative
+            "n_one_sided_reference": 0,        # activations where no midquote existed
+        }
 
-        # all bettors in the list trade (incl. whales appended beyond n_bettors)
         for i in rng.permutation(len(bettors)):
-            order = bettors[i].limit_order(ob.mid(mkt_price), ob, rng, max_markup)
-            if order is None:
-                continue                      # keep any resting order; place nothing new
-            side, p, q = order
-            ob.cancel_trader(i)               # one live order per bettor -> always budget-feasible
-            for buyer, seller, px, qf in ob.submit(i, side, p, q, t, ttl):
-                bettors[buyer].n_contracts += qf
-                bettors[buyer].budget -= qf * px     # settle at the TRADE price, not a global price
-                bettors[seller].n_contracts -= qf
-                bettors[seller].budget += qf * px
-                step_vol += qf
-                step_trades += 1
-            net_flow += side * q
-            order_vol += q
+            agent = bettors[i]
+            # On activation the agent withdraws its resting order and re-decides from scratch,
+            # so its only live order is the one reflecting its current beliefs and holdings.
+            period["n_cancelled"] += len(ob.cancel_trader(i))
+            one_sided = ob.best_bid() is None or ob.best_ask() is None
+            ref = ob.mid(mkt_price)
+            period["n_one_sided_reference"] += one_sided
 
-        if price_rule == 'mid':
+            desired = agent.trade(ref)
+            period["n_want_buy"] += desired > 0
+            period["n_want_sell"] += desired < 0
+
+            order = agent.limit_order(ref, ob, rng, max_markup)
+            if order is None:
+                period["n_desired_trade_dropped"] += desired != 0
+                continue
+            side, price, qty = order
+            period["n_side_flipped"] += desired != 0 and side != np.sign(desired)
+            if worst_case_wealth(agent, side * qty, price) < 0:
+                period["n_collateral_rejected"] += 1
+                continue
+
+            period["n_buy_orders" if side > 0 else "n_sell_orders"] += 1
+            period["submitted_buy_volume" if side > 0 else "submitted_sell_volume"] += qty
+
+            for buyer, seller, fill_price, fill_qty in ob.submit(i, side, price, qty, t, ttl):
+                bettors[buyer].n_contracts += fill_qty
+                bettors[buyer].budget -= fill_qty * fill_price
+                bettors[seller].n_contracts -= fill_qty
+                bettors[seller].budget += fill_qty * fill_price
+                period["traded_volume"] += fill_qty
+                period["n_trades"] += 1
+
+        snapshot = ob.market_snapshot()
+        assert not snapshot["spread"] <= 0, "book left crossed or locked"
+        assert sum(b.n_contracts for b in bettors) == total_contracts, "contracts not conserved"
+        assert np.isclose(sum(b.budget for b in bettors), total_cash), "cash not conserved"
+        assert min(worst_case_wealth(b) for b in bettors) >= -1e-9, "uncollateralised position"
+
+        for key, value in {**period, **snapshot}.items():
+            history[key].append(value)
+
+        # Reference price agents see between periods (and the price used in belief updates).
+        if price_rule == "mid":
             mkt_price = ob.mid(mkt_price)
-        else:
-            mkt_price = ob.last_price if ob.last_price is not None else mkt_price
+        elif np.isfinite(snapshot["last_trade"]):
+            mkt_price = snapshot["last_trade"]
 
         for b in bettors:
             b.update_belief(gen_el[t], mkt_price, price_history, k=k)
@@ -432,27 +526,42 @@ def run_market_lob(n_bettors, t_election, initial_price, outcome_uncertainty, be
         price_history.append(mkt_price)
         beliefs.append(np.mean([b.market_valuation for b in bettors]))
         beliefs_weighted.append(np.average([b.market_valuation for b in bettors], weights=[b.budget for b in bettors]))
-        vol_history.append(sum(np.abs(b.n_contracts) for b in bettors))
-        net_supply.append(net_flow)
-        market_pressure.append(net_flow / order_vol if order_vol else 0)
-        spread.append(ob.spread())
-        traded_volume.append(step_vol)
-        n_trades.append(step_trades)
-        last_trade.append(ob.last_price)
+        vol_history.append(sum(abs(b.n_contracts) for b in bettors))
 
-    return {'price_history': price_history,
-            'beliefs': beliefs,
-            'weighted_beliefs': beliefs_weighted,
-            'vol_history': vol_history,
-            'gen_el': gen_el,
-            'net_supply': net_supply[1:],
-            'market_pressure': market_pressure,
-            'final_budgets': [b.budget for b in bettors],
-            # new microstructure outputs
-            'spread': spread,
-            'traded_volume': traded_volume,
-            'n_trades': n_trades,
-            'last_trade': last_trade}
+    history = {key: np.asarray(values) for key, values in history.items()}
+    history["submitted_volume"] = history["submitted_buy_volume"] + history["submitted_sell_volume"]
+    net_supply = history["submitted_buy_volume"] - history["submitted_sell_volume"]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pressure = np.where(history["submitted_volume"] > 0, net_supply / history["submitted_volume"], 0.0)
+
+    # Midquote after trading in period t is compared with the fundamental gen_el[t]. Note the timing:
+    # agents trading in period t have only observed gen_el[0..t-1] (beliefs update after trading), so
+    # this error includes the unforecastable innovation gen_el[t] - gen_el[t-1] (mean |step| ~0.04
+    # when outcome_uncertainty = 0.05), which exceeds the default 0.02 tolerance.
+    convergence = first_passage_convergence(history["midquote"], gen_el[:t_election],
+                                            tolerance=convergence_tolerance, window=convergence_window)
+    time = np.arange(t_election)
+    scaled_time = (dimensionless_time(time, reference_timescale) if reference_timescale is not None
+                   else np.full(t_election, np.nan))
+
+    return {
+        "price_history": price_history,
+        "reference_price": price_history,
+        "beliefs": beliefs,
+        "weighted_beliefs": beliefs_weighted,
+        "vol_history": vol_history,
+        "gen_el": gen_el,
+        "net_supply": net_supply,
+        "market_pressure": np.concatenate([[0.0], pressure]),
+        "final_budgets": [b.budget for b in bettors],
+        **history,
+        "convergence": convergence,
+        "time": time,
+        "dimensionless_time": scaled_time,
+        "convergence_tolerance": convergence_tolerance,
+        "convergence_window": convergence_window,
+        "reference_timescale": reference_timescale,
+    }
 
 
 def plot_returns(rec, scale_fact = 10, step=False): ## Election Result

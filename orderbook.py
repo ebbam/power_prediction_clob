@@ -6,8 +6,9 @@ Design follows the continuous-double-auction ABM tradition
   * price-time priority; trades execute at the resting order's price
   * discrete tick (prediction markets quote in cents), prices in [tick, 1 - tick]
   * unfilled remainders rest in the book until filled, cancelled, or expired
-  * one live order per trader (cancel-and-replace on re-activation), which keeps
-    every resting order budget-feasible without a separate escrow ledger
+  * one live order per trader (cancelled whenever the trader is re-activated), which keeps
+    every resting order budget-feasible without a separate escrow ledger: a trader's cash and
+    position change only through fills of that one order, at its limit price or better
 """
 import bisect
 import numpy as np
@@ -30,9 +31,16 @@ class OrderBook:
         return self.asks[0][3] if self.asks else None
 
     def mid(self, fallback):
+        """
+        Reference price for agents: the midquote if both sides exist; otherwise the one remaining
+        best quote (the only price anyone can currently trade at); otherwise the last trade;
+        otherwise fallback. A stale last trade is used only when the book is empty.
+        """
         bb, ba = self.best_bid(), self.best_ask()
         if bb is not None and ba is not None:
             return 0.5 * (bb + ba)
+        if bb is not None or ba is not None:
+            return bb if bb is not None else ba
         return self.last_price if self.last_price is not None else fallback
 
     def spread(self):
@@ -48,13 +56,19 @@ class OrderBook:
         n = np.floor(p / self.tick + 1e-9) if side > 0 else np.ceil(p / self.tick - 1e-9)
         return float(np.clip(n * self.tick, self.tick, 1 - self.tick))
 
+    def _remove(self, should_remove):
+        """Remove every resting order for which should_remove(order) is True; return the removed orders."""
+        removed = [o for o in self.bids + self.asks if should_remove(o)]
+        self.bids = [o for o in self.bids if not should_remove(o)]
+        self.asks = [o for o in self.asks if not should_remove(o)]
+        return removed
+
     def cancel_trader(self, trader_id):
-        self.bids = [o for o in self.bids if o[2] != trader_id]
-        self.asks = [o for o in self.asks if o[2] != trader_id]
+        return self._remove(lambda o: o[2] == trader_id)
 
     def expire(self, t):
-        self.bids = [o for o in self.bids if o[5] > t]
-        self.asks = [o for o in self.asks if o[5] > t]
+        """An order submitted at t0 with time-to-live ttl rests during periods t0, ..., t0 + ttl - 1."""
+        return self._remove(lambda o: o[5] <= t)
 
     def submit(self, trader_id, side, price, qty, t, ttl):
         """
@@ -79,6 +93,51 @@ class OrderBook:
             own = self.bids if side > 0 else self.asks
             key = -price if side > 0 else price
             entry = [key, self.seq, trader_id, price, qty, t + ttl]
-            bisect.insort(own, entry, key=lambda o: (o[0], o[1]))  # Python >= 3.10
+            bisect.insort(own, entry)
             self.seq += 1
         return fills
+
+    def market_snapshot(self):
+        """
+        Return a snapshot of the current order book.
+
+        Missing quotes are recorded as NaN rather than
+        replaced with stale transaction prices.
+        """
+
+        bid = self.best_bid()
+        ask = self.best_ask()
+
+        bid_depth, ask_depth = self.depth()
+
+        total_depth = bid_depth + ask_depth
+
+        if bid is not None and ask is not None:
+            midquote = 0.5 * (bid + ask)
+            spread = ask - bid
+        else:
+            midquote = np.nan
+            spread = np.nan
+
+        if total_depth > 0:
+            imbalance = (
+                (bid_depth - ask_depth) / total_depth
+            )
+        else:
+            imbalance = np.nan
+
+        return {
+            "best_bid": bid if bid is not None else np.nan,
+            "best_ask": ask if ask is not None else np.nan,
+            "midquote": midquote,
+            "spread": spread,
+            "bid_depth": bid_depth,
+            "ask_depth": ask_depth,
+            "total_depth": total_depth,
+            "book_imbalance": imbalance,
+            "last_trade": (
+                self.last_price
+                if self.last_price is not None
+                else np.nan
+            ),
+        }
