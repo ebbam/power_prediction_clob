@@ -171,6 +171,34 @@ def test_simulation_conserves_cash_and_contracts_and_keeps_one_order_per_trader(
     assert np.all(result["n_collateral_rejected"] == 0)
 
 
+def test_whale_is_added_at_configured_time_with_requested_initial_capital_share():
+    population = [make_bettor(budget=50.0) for _ in range(4)]
+    rng = np.random.default_rng(4)
+
+    result = run_market_lob(
+        4,
+        4,
+        0.5,
+        0.0,
+        population,
+        gen_el=np.full(4, 0.5),
+        rng=rng,
+        whale_share=0.5,
+        whale_start=2,
+        whale_valuation=0.7,
+    )
+
+    assert len(population) == 5
+    assert population[-1].whale
+    assert population[-1].market_valuation == 0.7
+    assert np.isclose(result["whale_initial_budget"], 200.0)
+    assert result["whale_added_at"] == 2
+    assert np.isclose(result["market_cash_before_whale"], 200.0)
+    assert np.isclose(result["market_cash_after_whale"], 400.0)
+    assert np.isclose(sum(b.budget for b in population), 400.0)
+    assert np.isclose(result["final_budgets"][-1], population[-1].budget)
+
+
 if __name__ == "__main__":
     tests = [f for name, f in dict(globals()).items() if name.startswith("test_")]
     for test in tests:

@@ -411,7 +411,8 @@ def worst_case_wealth(agent, signed_qty=0, price=0.0):
 def run_market_lob(n_bettors, t_election, initial_price, outcome_uncertainty, bettors,
                    k=1, market_error=0, gen_el=None, tick=0.01, ttl=5, max_markup=0.05,
                    price_rule="mid", rng=None, convergence_tolerance=0.02,
-                   convergence_window=5, reference_timescale=None):
+                   convergence_window=5, reference_timescale=None, whale_share=0.0,
+                   whale_start=0, whale_valuation=0.7):
     '''
     Run the prediction market with a persistent central limit order book (CLOB).
 
@@ -434,6 +435,15 @@ def run_market_lob(n_bettors, t_election, initial_price, outcome_uncertainty, be
         raise ValueError("price_rule must be 'mid' or 'last'")
     if ttl < 1:
         raise ValueError("ttl must be >= 1")
+    if not np.isfinite(whale_share) or not 0 <= whale_share < 1:
+        raise ValueError("whale_share must be finite and in [0, 1)")
+    if whale_share > 0 and (
+        not isinstance(whale_start, (int, np.integer))
+        or not 0 <= whale_start < t_election
+    ):
+        raise ValueError("whale_start must be an integer within the simulation")
+    if not np.isfinite(whale_valuation) or not 0 <= whale_valuation <= 1:
+        raise ValueError("whale_valuation must be finite and in [0, 1]")
     if gen_el is None:
         gen_el = gen_election(initial_price, t_election, outcome_uncertainty)
     gen_el = np.asarray(gen_el, dtype=float)
@@ -454,8 +464,26 @@ def run_market_lob(n_bettors, t_election, initial_price, outcome_uncertainty, be
     beliefs = [np.mean([b.market_valuation for b in bettors])]
     beliefs_weighted = [np.average([b.market_valuation for b in bettors], weights=[b.budget for b in bettors])]
     history = defaultdict(list)   # one entry per period for every diagnostic below
+    whale_initial_budget = None
+    whale_added_at = None
+    market_cash_before_whale = None
 
     for t in range(t_election):
+        if whale_share > 0 and t == whale_start:
+            # Reserve the whale's share outside the market before intervention.
+            market_cash_before_whale = total_cash
+            whale_budget = total_cash * whale_share / (1 - whale_share)
+            whale = bettor(
+                budget=whale_budget,
+                market_valuation=whale_valuation,
+                risk_av=0.5,
+                whale=True,
+            )
+            bettors.append(whale)
+            total_cash += whale_budget
+            whale_initial_budget = whale_budget
+            whale_added_at = t
+
         expired = ob.expire(t)
         period = {
             "submitted_buy_volume": 0, "submitted_sell_volume": 0,
@@ -561,6 +589,10 @@ def run_market_lob(n_bettors, t_election, initial_price, outcome_uncertainty, be
         "convergence_tolerance": convergence_tolerance,
         "convergence_window": convergence_window,
         "reference_timescale": reference_timescale,
+        "whale_initial_budget": whale_initial_budget,
+        "whale_added_at": whale_added_at,
+        "market_cash_before_whale": market_cash_before_whale,
+        "market_cash_after_whale": total_cash,
     }
 
 
