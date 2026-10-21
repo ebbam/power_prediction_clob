@@ -1,0 +1,21 @@
+/*
+Dash 4 draws sliders (and dropdown/input highlights) in purple, set by the variable
+--Dash-Fill-Interactive-Strong on :root. Redefining it on <body> overrides it for the whole
+page, here with the Bootstrap blue used by the rest of the app. Dash loads this file
+automatically because it is in the assets/ folder.
+*/
+body {
+    --Dash-Fill-Interactive-Strong: #0d6efd;
+}
+
+/*
+Policy app (policy_visualisation.py): page text scales with the window width, from 13px on a
+small laptop to 16px on a wide screen. Sizes inside the app are in em so they follow it.
+Plot text is set in the figures (Plotly fonts are fixed sizes); the plots themselves resize.
+*/
+.policy-app {
+    font-size: clamp(13px, 0.4vw + 8px, 16px);
+}
+.policy-app h1 { font-size: 2.1em; }
+.policy-app h4 { font-size: 1.3em; }
+.policy-app .small { font-size: 0.85em; }
