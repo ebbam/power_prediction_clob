@@ -1,5 +1,0 @@
-whale_share,runs,distorted_runs,distortion_rate,recovered_runs,recovery_rate_among_distorted,median_recovery_time_km,median_recovery_time_km_identified,median_recovery_time_recovered_only,mean_recovery_time_recovered_only,error_threshold,threshold_quantile,pre_period,post_period,convergence_window
-0.0,50,50,1.0,50,1.0,16.0,True,16.5,19.98,0.1166643619763108,0.95,50,100,5
-0.25,50,50,1.0,49,0.98,14.0,True,14.0,18.775510204081634,0.1166643619763108,0.95,50,100,5
-0.5,50,50,1.0,37,0.74,38.0,True,22.0,30.64864864864865,0.1166643619763108,0.95,50,100,5
-0.75,50,50,1.0,30,0.6,76.0,True,28.5,36.96666666666667,0.1166643619763108,0.95,50,100,5
