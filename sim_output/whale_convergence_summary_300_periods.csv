@@ -1,0 +1,5 @@
+whale_share,runs,unusual_peak_runs,unusual_peak_rate,recovered_runs,recovery_rate_among_unusual_peaks,mean_post_peak_error,median_post_peak_error,median_recovery_time_km,median_recovery_time_km_identified,median_recovery_time_recovered_only,mean_recovery_time_recovered_only,ordinary_error_band,ordinary_error_quantile,control_peak_cutoff,control_peak_quantile,pre_period,post_period,convergence_window
+0.0,50,3,0.06,3,1.0,0.1867476153888843,0.18280049106368487,1.0,True,1.0,1.0,0.11666436197631085,0.95,0.2505842025931226,0.95,50,300,5
+0.25,50,48,0.96,33,0.6875,0.5763238554937232,0.5720404538643176,18.0,True,13.0,22.696969696969695,0.11666436197631085,0.95,0.2505842025931226,0.95,50,300,5
+0.5,50,50,1.0,31,0.62,0.7133029206185766,0.7449623055950471,70.0,True,41.0,56.45161290322581,0.11666436197631085,0.95,0.2505842025931226,0.95,50,300,5
+0.75,50,50,1.0,29,0.58,0.7403720994976237,0.7681012319084632,52.0,True,40.0,51.44827586206897,0.11666436197631085,0.95,0.2505842025931226,0.95,50,300,5
