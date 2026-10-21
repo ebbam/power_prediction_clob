@@ -14,8 +14,8 @@ from bettor import bettor, run_market_fixed_el, run_market_lob
 from distortion import (
     calibrate_band,
     distortion_metrics,
-    plot_distortion_duration,
-    plot_distortion_magnitude,
+    normalised_pull,
+    plot_distortion_figures,
     smoothed_absolute_error,
     summarize_distortion,
 )
@@ -31,6 +31,10 @@ INITIAL_PRICE = 0.50
 OUTCOME_UNCERTAINTY = 0.05
 BASE_SEED = 2042
 OUTPUT_DIR = Path(__file__).resolve().parent
+FIGURES_DIR = OUTPUT_DIR / "figures"
+FIGURES_DIR.mkdir(exist_ok=True)
+SIM_DIR = OUTPUT_DIR / "sim_output"
+SIM_DIR.mkdir(exist_ok=True)
 
 
 def election_path(seed):
@@ -76,7 +80,7 @@ MODELS = {"Walrasian": run_walrasian, "CLOB": run_clob}
 
 
 def main():
-    smoothed = {}
+    smoothed, pull = {}, {}
     for model, run in MODELS.items():
         for share in (0.0, WHALE_SHARE):
             print(f"{model}, whale share {share:.0%}")
@@ -85,6 +89,8 @@ def main():
                 path = election_path(seed)
                 prices = run(seed, path, share)
                 smoothed[model, share, i] = smoothed_absolute_error(prices, path[:HORIZON])
+                pull[model, share, i] = normalised_pull(prices, path[:HORIZON],
+                                                        WHALE_VALUATION, SHOCK_TIME)
 
     rows = []
     for model in MODELS:
@@ -92,20 +98,18 @@ def main():
             [smoothed[model, 0.0, i] for i in range(N_RUNS)]))
         for share, label in ((0.0, "no whale"), (WHALE_SHARE, f"{WHALE_SHARE:.0%} whale")):
             for i in range(N_RUNS):
-                rows.append({"model": f"{model}, {label}", "run": i, "ordinary_band": band,
+                rows.append({"model": f"{model}, {label}", "run": i,
+                             "normalised_pull": pull[model, share, i],
                              **distortion_metrics(smoothed[model, share, i], SHOCK_TIME, band)})
     metrics = pd.DataFrame(rows)
 
     summary = summarize_distortion(metrics, group="model")
-    summary = summary.merge(metrics.groupby("model")["ordinary_band"].first(), on="model")
-    summary.to_csv(OUTPUT_DIR / "mechanism_distortion_summary.csv", index=False)
+    summary.to_csv(SIM_DIR / "mechanism_distortion_summary.csv", index=False)
     print(summary.to_string(index=False))
 
-    figure, (left, right) = plt.subplots(1, 2, figsize=(13, 4.6), constrained_layout=True)
-    plot_distortion_magnitude(metrics, group="model", ax=left)
-    plot_distortion_duration(metrics, group="model", ax=right)
-    figure.savefig(OUTPUT_DIR / "mechanism_distortion.png", dpi=300, bbox_inches="tight")
-    figure.savefig(OUTPUT_DIR / "mechanism_distortion.pdf", bbox_inches="tight")
+    figure = plot_distortion_figures(metrics, group="model")
+    figure.savefig(FIGURES_DIR / "mechanism_distortion.png", dpi=300, bbox_inches="tight")
+    figure.savefig(FIGURES_DIR / "mechanism_distortion.pdf", bbox_inches="tight")
     plt.close(figure)
 
 

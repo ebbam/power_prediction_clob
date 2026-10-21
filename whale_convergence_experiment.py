@@ -27,6 +27,10 @@ TTL = 5
 MAX_MARKUP = 0.05
 BASE_SEED = 1042
 OUTPUT_DIR = Path(__file__).resolve().parent
+FIGURES_DIR = OUTPUT_DIR / "figures"
+FIGURES_DIR.mkdir(exist_ok=True)
+SIM_DIR = OUTPUT_DIR / "sim_output"
+SIM_DIR.mkdir(exist_ok=True)
 ORDINARY_ERROR_QUANTILE = 0.95
 CONTROL_PEAK_QUANTILE = 0.95
 
@@ -249,12 +253,12 @@ def plot_convergence_curves(run_frame, error_band, peak_cutoff):
         fontsize=11,
     )
     figure.savefig(
-        OUTPUT_DIR / f"whale_convergence_time_{POST_PERIOD}_periods.png",
+        FIGURES_DIR / f"whale_convergence_time_{POST_PERIOD}_periods.png",
         dpi=600,
         bbox_inches="tight",
     )
     figure.savefig(
-        OUTPUT_DIR / f"whale_convergence_time_{POST_PERIOD}_periods.pdf",
+        FIGURES_DIR / f"whale_convergence_time_{POST_PERIOD}_periods.pdf",
         bbox_inches="tight",
     )
     plt.close(figure)
@@ -508,14 +512,14 @@ def main():
 
     run_suffix = f"{POST_PERIOD}_periods"
     run_frame.to_csv(
-        OUTPUT_DIR / f"whale_convergence_runs_{run_suffix}.csv",
+        SIM_DIR / f"whale_convergence_runs_{run_suffix}.csv",
         index=False,
     )
     trajectory_frame.assign(
         ordinary_error_band=error_band,
         control_peak_cutoff=peak_cutoff,
     ).to_csv(
-        OUTPUT_DIR / f"whale_convergence_trajectories_{run_suffix}.csv",
+        SIM_DIR / f"whale_convergence_trajectories_{run_suffix}.csv",
         index=False,
     )
     aggregate_frame.assign(
@@ -527,7 +531,7 @@ def main():
         post_period=POST_PERIOD,
         convergence_window=CONVERGENCE_WINDOW,
     ).to_csv(
-        OUTPUT_DIR / f"whale_convergence_summary_{run_suffix}.csv",
+        SIM_DIR / f"whale_convergence_summary_{run_suffix}.csv",
         index=False,
     )
 
@@ -544,10 +548,10 @@ def main():
         "no-whale post-period run peaks)"
     )
     print(aggregate_frame.to_string(index=False))
-    print(f"\nSaved whale_convergence_runs_{run_suffix}.csv")
-    print(f"Saved whale_convergence_trajectories_{run_suffix}.csv")
-    print(f"Saved whale_convergence_summary_{run_suffix}.csv")
-    print(f"Saved whale_convergence_time_{run_suffix}.png and .pdf")
+    print(f"\nSaved sim_output/whale_convergence_runs_{run_suffix}.csv")
+    print(f"Saved sim_output/whale_convergence_trajectories_{run_suffix}.csv")
+    print(f"Saved sim_output/whale_convergence_summary_{run_suffix}.csv")
+    print(f"Saved figures/whale_convergence_time_{run_suffix}.png and .pdf")
 
 
 if __name__ == "__main__":
