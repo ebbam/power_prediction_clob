@@ -12,12 +12,16 @@ Run repeated CLOB prediction-market simulations and collect:
 """
 
 import copy
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
 from bettor import bettor, run_market_lob
 from convergence import kaplan_meier_median
+
+os.makedirs("figures", exist_ok=True)
+os.makedirs("sim_output", exist_ok=True)
 
 
 # ============================================================
@@ -387,12 +391,12 @@ print(
 # ============================================================
 
 summary.to_csv(
-    "clob_simulation_summary.csv",
+    "sim_output/clob_simulation_summary.csv",
     index=False,
 )
 
 print(
-    "\nSaved: clob_simulation_summary.csv"
+    "\nSaved: sim_output/clob_simulation_summary.csv"
 )
 
 
@@ -445,7 +449,7 @@ plt.legend()
 plt.tight_layout()
 
 plt.savefig(
-    "clob_price_discovery.png",
+    "figures/clob_price_discovery.png",
     dpi=300,
 )
 
@@ -490,7 +494,7 @@ plt.legend()
 plt.tight_layout()
 
 plt.savefig(
-    "clob_pricing_error.png",
+    "figures/clob_pricing_error.png",
     dpi=300,
 )
 
@@ -538,7 +542,7 @@ plt.legend()
 plt.tight_layout()
 
 plt.savefig(
-    "clob_market_activity.png",
+    "figures/clob_market_activity.png",
     dpi=300,
 )
 
@@ -588,7 +592,7 @@ plt.legend()
 plt.tight_layout()
 
 plt.savefig(
-    "clob_liquidity.png",
+    "figures/clob_liquidity.png",
     dpi=300,
 )
 
