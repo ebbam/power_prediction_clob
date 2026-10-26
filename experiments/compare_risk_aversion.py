@@ -15,8 +15,8 @@ import numpy as np
 import pandas as pd
 
 import bettor as bettor_module
-import whale_convergence_experiment as experiment
-from distortion import (
+import experiments.whale_convergence_experiment as experiment
+from metrics import (
     calibrate_band,
     distortion_metrics,
     normalised_pull,
@@ -26,10 +26,10 @@ from distortion import (
     smoothed_absolute_error,
 )
 from paper_figures import WHALE_SHARE_COLORS
-from plot_whale_distortion import RHO, whale_metrics
+from experiments.whale_convergence_experiment import RHO, whale_metrics
 
 
-OUTPUT_DIR = Path(__file__).resolve().parent
+OUTPUT_DIR = Path(__file__).resolve().parents[1]   # repository root
 FIGURES_DIR = OUTPUT_DIR / "figures"
 FIGURES_DIR.mkdir(exist_ok=True)
 SIM_DIR = OUTPUT_DIR / "sim_output"

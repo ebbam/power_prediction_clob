@@ -1,6 +1,6 @@
 """
 Tests for the CLOB, agent order generation and collateral accounting.
-Run with `python3 -m pytest test_clob.py` or simply `python3 test_clob.py`.
+Run from the repository root with `python3 -m pytest tests` or simply `python3 -m tests.test_clob`.
 """
 import numpy as np
 
