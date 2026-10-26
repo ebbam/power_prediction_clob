@@ -1,4 +1,5 @@
-"""Model-agnostic measures of the size and persistence of a price distortion.
+"""Model-agnostic measures of the size and persistence of a price distortion, and of a
+run's convergence to the fundamental (merged from convergence.py).
 
 Every statistic is computed for every run, distorted or not, from three inputs any
 market model can supply: the price path, the fundamental path and the shock time.
@@ -25,6 +26,15 @@ market model can supply: the price path, the fundamental path and the shock time
 
 Timing reversion from the maximum, not the shock, stops a gradual shock (one that leaves
 the price inside the band for its first few periods) from counting as an instant recovery.
+
+Sections, most used first:
+    1. Distortion statistics           smoothed error, band, P1, P1b, P3  (paper Figures 2-3)
+    2. Distortion plots                histograms and ridgelines by group  (paper Figures 2-3)
+    3. Convergence of a single run     first passage into a tolerance band (every
+                                       bettor.run_market_lob record; experiments/run.py)
+    4. Reversion time and summaries    P2 Kaplan-Meier, summary tables, combined P1-P3 figure
+                                       (supplementary experiments only)
+    5. Older measures                  kept for experiments/run.py; superseded by km_median
 """
 
 import math
@@ -39,6 +49,9 @@ DEFAULT_WINDOW = 5
 DEFAULT_BAND_QUANTILE = 0.95
 MIN_AT_RISK = 5
 GROUP_COLORS = ("#222222", "#0072B2", "#D55E00", "#CC79A7", "#009E73", "#E69F00")
+
+
+# ---------------- 1. Distortion statistics
 
 
 def smoothed_absolute_error(prices, fundamentals, window=DEFAULT_WINDOW):
@@ -116,6 +129,325 @@ def normalised_pull(prices, fundamentals, target, shock_time):
         return np.nan
     return float(np.sum((prices - fundamentals)[valid] * gap[valid])
                  / np.sum(gap[valid] ** 2))
+
+
+# ---------------- 2. Distortion plots
+
+
+def plot_max_error(metrics, group="group", ax=None, title=None, palette=None,
+                   layout="overlay", row_labels=True):
+    """P1: distribution of the maximum post-shock error across runs, by group."""
+    upper = 0.05 * np.ceil(metrics["max_error"].max() / 0.05 + 1)
+    return _plot_distribution(
+        metrics, "max_error", group, ax, palette=palette,
+        xlabel="Maximum market error (probability points)",
+        title=title or "P1: Maximum market error",
+        label_format=lambda value: f"{value:.2f}",
+        limits=(0, upper), show_band=True, layout=layout, row_labels=row_labels,
+    )
+
+
+def plot_normalised_pull(metrics, group="group", ax=None, title=None, palette=None,
+                         layout="overlay", row_labels=True):
+    """P1b: distribution of the normalised pull toward the distorting target, by group."""
+    values = metrics["normalised_pull"]
+    lower = min(-0.1, 0.05 * np.floor(values.min() / 0.05 - 1))
+    upper = max(1.0, 0.05 * np.ceil(values.max() / 0.05 + 1))
+    ax = _plot_distribution(
+        metrics, "normalised_pull", group, ax, palette=palette,
+        xlabel="Normalised pull (0 = tracks fundamental, 1 = at target)",
+        title=title or "P1b: Pull toward the whale's valuation",
+        label_format=lambda value: f"{value:.2f}",
+        limits=(lower, upper), layout=layout, row_labels=row_labels,
+    )
+    for reference in (0, 1):
+        ax.axvline(reference, color="#BBBBBB", linewidth=0.8)
+    return ax
+
+
+def plot_time_outside_band(metrics, group="group", ax=None, title=None,
+                           band_quantile=DEFAULT_BAND_QUANTILE, palette=None,
+                           layout="overlay", row_labels=True):
+    """P3: distribution of the share of post-shock periods spent outside the band."""
+    bands = pd.unique(metrics["ordinary_band"])
+    band_value = f" = {bands[0]:.3f}" if len(bands) == 1 else " (set per model)"
+    ax = _plot_distribution(
+        metrics, "share_outside_band", group, ax, palette=palette,
+        xlabel="Share of post-shock periods with error above the band",
+        title=title or (
+            "P3: Time with pricing error above ordinary noise\n"
+            f"Band{band_value}: {band_quantile:.0%} of control-run errors fall below it"
+        ),
+        label_format=lambda value: f"{value:.0%}",
+        limits=(0, 1), layout=layout, row_labels=row_labels,
+    )
+    ax.xaxis.set_major_formatter(PercentFormatter(xmax=1.0))
+    return ax
+
+
+def _plot_distribution(metrics, column, group, ax, xlabel, title, label_format, limits,
+                       palette=None,
+                       bin_width=0.025, show_band=False, layout="overlay", row_labels=True):
+    """Histograms of one statistic by group, each median marked.
+
+    layout="overlay" draws them on top of each other; layout="ridge" gives each its own row.
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(6.4, 4.2), constrained_layout=True)
+    if layout == "ridge":
+        return _plot_ridges(metrics, column, group, ax, xlabel, title, label_format, limits,
+                            palette, bin_width, show_band, row_labels)
+    names = list(pd.unique(metrics[group]))
+    colors = _group_colors(names, palette)
+    edges = np.arange(limits[0], limits[1] + bin_width / 2, bin_width)
+
+    for name in names:
+        values = metrics.loc[metrics[group] == name, column].dropna()
+        median = values.median()
+        ax.hist(values, bins=edges, color=colors[name], alpha=0.22)
+        ax.hist(values, bins=edges, histtype="step", color=colors[name], linewidth=1.0,
+                label=f"{name} (median {label_format(median)})")
+        ax.axvline(median, color=colors[name], linewidth=1.2, linestyle=":")
+
+    if show_band:
+        bands = pd.unique(metrics["ordinary_band"])
+        for position, band in enumerate(bands):
+            ax.axvline(band, color="#888888", linewidth=1, linestyle="--",
+                       label=("Ordinary band" if len(bands) == 1 else "Ordinary bands")
+                       if position == 0 else None)
+
+    ax.set(xlim=limits, xlabel=xlabel, ylabel="Runs")
+    ax.set_title(title)
+    ax.legend(frameon=False, loc="upper right", title=group)
+    _style(ax)
+    return ax
+
+
+def _plot_ridges(metrics, column, group, ax, xlabel, title, label_format, limits, palette,
+                 bin_width, show_band, row_labels=True):
+    """One histogram per group in its own row on a shared x-axis, first group at the top.
+
+    Each row is scaled to its own tallest bar, so rows show shape and position, not counts.
+    """
+    names = list(pd.unique(metrics[group]))
+    colors = _group_colors(names, palette)
+    edges = np.arange(limits[0], limits[1] + bin_width / 2, bin_width)
+    height = 0.85
+    ticks, tick_labels = [], []
+
+    for row, name in enumerate(names):
+        base = len(names) - 1 - row
+        frame = metrics.loc[metrics[group] == name]
+        values = frame[column].dropna()
+        counts, _ = np.histogram(values, bins=edges)
+        scaled = base + height * counts / max(counts.max(), 1)
+        ax.stairs(scaled, edges, baseline=base, fill=True, color=colors[name], alpha=0.3)
+        ax.stairs(scaled, edges, baseline=base, color=colors[name], linewidth=1.0,
+                  label=str(name))
+        ax.axhline(base, color="#BBBBBB", linewidth=0.6)
+        median = values.median()
+        ax.vlines(median, base, base + height, color=colors[name], linewidth=1.6)
+        if show_band:
+            ax.vlines(frame["ordinary_band"].iloc[0], base, base + height, color="#888888",
+                      linewidth=1, linestyle="--", label="Ordinary band" if row == 0 else None)
+        ticks.append(base + height / 2)
+        tick_labels.append(f"{name}\nmedian {label_format(median)}")
+
+    if row_labels:
+        ax.set_yticks(ticks, tick_labels)
+        ax.set_ylabel(group)
+    else:
+        ax.set_yticks([])                # a colour key identifies the rows instead
+    ax.tick_params(axis="y", length=0)
+    ax.set(xlim=limits, ylim=(0, len(names)), xlabel=xlabel)
+    ax.set_title(title)
+    ax.grid(axis="x", color="#E5E5E5", linewidth=0.6)
+    ax.set_axisbelow(True)
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    if show_band:
+        ax.legend(frameon=False, loc="upper right")
+    return ax
+
+
+def _group_colors(names, palette=None):
+    palette = GROUP_COLORS if palette is None else palette
+    if len(names) > len(palette):
+        raise ValueError(f"At most {len(palette)} groups can be plotted together")
+    return dict(zip(names, palette))
+
+
+def _style(axis):
+    axis.grid(axis="y", color="#D9D9D9", linewidth=0.7)
+    axis.set_axisbelow(True)
+    axis.spines["top"].set_visible(False)
+    axis.spines["right"].set_visible(False)
+
+
+# ---------------- 3. Convergence of a single run
+
+
+def first_passage_convergence(
+    prices,
+    fundamentals,
+    tolerance=0.02,
+    window=5,
+):
+    """
+    Measure sustained convergence of market prices
+    to the underlying fundamental probability.
+
+    Parameters
+    ----------
+    prices : array-like
+        Observed market prices, preferably midquotes.
+
+    fundamentals : array-like
+        True probabilities at matching simulation times.
+
+    tolerance : float
+        Maximum absolute pricing error.
+
+    window : int
+        Number of consecutive periods required
+        inside the tolerance band.
+
+    Returns
+    -------
+    dict
+        first_passage_time:
+            First period of the first qualifying window.
+
+        confirmation_time:
+            Last period of the first qualifying window.
+
+        converged:
+            Whether sustained convergence occurred.
+
+        censored:
+            Whether convergence was not observed.
+
+        absolute_error:
+            Absolute pricing-error trajectory.
+
+        within_tolerance:
+            Boolean trajectory indicating whether
+            each valid observation is within tolerance.
+    """
+
+    prices = np.asarray(prices, dtype=float)
+
+    fundamentals = np.asarray(
+        fundamentals,
+        dtype=float,
+    )
+
+    if prices.ndim != 1 or fundamentals.ndim != 1:
+        raise ValueError(
+            "Prices and fundamentals must be 1D arrays"
+        )
+
+    if len(prices) != len(fundamentals):
+        raise ValueError(
+            "Prices and fundamentals must have equal length"
+        )
+
+    if tolerance < 0:
+        raise ValueError(
+            "Tolerance must be nonnegative"
+        )
+
+    if not isinstance(window, (int, np.integer)):
+        raise ValueError(
+            "Window must be an integer"
+        )
+
+    if window < 1:
+        raise ValueError(
+            "Window must be at least 1"
+        )
+
+    # Missing prices must never count as convergence.
+    valid = (
+        np.isfinite(prices)
+        & np.isfinite(fundamentals)
+    )
+
+    absolute_error = np.full(
+        len(prices),
+        np.nan,
+        dtype=float,
+    )
+
+    absolute_error[valid] = np.abs(
+        prices[valid] - fundamentals[valid]
+    )
+
+    within_tolerance = (
+        valid
+        & (absolute_error <= tolerance)
+    )
+
+    # Search for the first sustained convergence window.
+    first_passage_time = np.nan
+    confirmation_time = np.nan
+
+    for start in range(
+        len(prices) - window + 1
+    ):
+
+        end = start + window
+
+        if np.all(within_tolerance[start:end]):
+
+            first_passage_time = start
+            confirmation_time = end - 1
+
+            break
+
+    converged = bool(
+        np.isfinite(first_passage_time)
+    )
+
+    return {
+        "first_passage_time": first_passage_time,
+        "confirmation_time": confirmation_time,
+        "converged": converged,
+        "censored": not converged,
+        "absolute_error": absolute_error,
+        "within_tolerance": within_tolerance,
+        "tolerance": tolerance,
+        "window": window,
+    }
+
+
+def dimensionless_time(
+    time,
+    reference_timescale,
+):
+    """
+    Convert simulation time into dimensionless time.
+
+    t_hat = t / tau_ref
+
+    The reference timescale should preferably be
+    estimated from independent baseline simulations.
+    """
+
+    if (
+        not np.isfinite(reference_timescale)
+        or reference_timescale <= 0
+    ):
+        raise ValueError(
+            "reference_timescale must be finite and positive"
+        )
+
+    time = np.asarray(time, dtype=float)
+
+    return time / reference_timescale
+
+
+# ---------------- 4. Reversion time (P2) and summaries
 
 
 def kaplan_meier_curve(durations, observed, horizon, min_at_risk=1):
@@ -205,136 +537,6 @@ def summarize_distortion(metrics, group="group"):
     return pd.DataFrame(rows)
 
 
-def _group_colors(names, palette=None):
-    palette = GROUP_COLORS if palette is None else palette
-    if len(names) > len(palette):
-        raise ValueError(f"At most {len(palette)} groups can be plotted together")
-    return dict(zip(names, palette))
-
-
-def _style(axis):
-    axis.grid(axis="y", color="#D9D9D9", linewidth=0.7)
-    axis.set_axisbelow(True)
-    axis.spines["top"].set_visible(False)
-    axis.spines["right"].set_visible(False)
-
-
-def _plot_ridges(metrics, column, group, ax, xlabel, title, label_format, limits, palette,
-                 bin_width, show_band, row_labels=True):
-    """One histogram per group in its own row on a shared x-axis, first group at the top.
-
-    Each row is scaled to its own tallest bar, so rows show shape and position, not counts.
-    """
-    names = list(pd.unique(metrics[group]))
-    colors = _group_colors(names, palette)
-    edges = np.arange(limits[0], limits[1] + bin_width / 2, bin_width)
-    height = 0.85
-    ticks, tick_labels = [], []
-
-    for row, name in enumerate(names):
-        base = len(names) - 1 - row
-        frame = metrics.loc[metrics[group] == name]
-        values = frame[column].dropna()
-        counts, _ = np.histogram(values, bins=edges)
-        scaled = base + height * counts / max(counts.max(), 1)
-        ax.stairs(scaled, edges, baseline=base, fill=True, color=colors[name], alpha=0.3)
-        ax.stairs(scaled, edges, baseline=base, color=colors[name], linewidth=1.0,
-                  label=str(name))
-        ax.axhline(base, color="#BBBBBB", linewidth=0.6)
-        median = values.median()
-        ax.vlines(median, base, base + height, color=colors[name], linewidth=1.6)
-        if show_band:
-            ax.vlines(frame["ordinary_band"].iloc[0], base, base + height, color="#888888",
-                      linewidth=1, linestyle="--", label="Ordinary band" if row == 0 else None)
-        ticks.append(base + height / 2)
-        tick_labels.append(f"{name}\nmedian {label_format(median)}")
-
-    if row_labels:
-        ax.set_yticks(ticks, tick_labels)
-        ax.set_ylabel(group)
-    else:
-        ax.set_yticks([])                # a colour key identifies the rows instead
-    ax.tick_params(axis="y", length=0)
-    ax.set(xlim=limits, ylim=(0, len(names)), xlabel=xlabel)
-    ax.set_title(title)
-    ax.grid(axis="x", color="#E5E5E5", linewidth=0.6)
-    ax.set_axisbelow(True)
-    for side in ("top", "right", "left"):
-        ax.spines[side].set_visible(False)
-    if show_band:
-        ax.legend(frameon=False, loc="upper right")
-    return ax
-
-
-def _plot_distribution(metrics, column, group, ax, xlabel, title, label_format, limits,
-                       palette=None,
-                       bin_width=0.025, show_band=False, layout="overlay", row_labels=True):
-    """Histograms of one statistic by group, each median marked.
-
-    layout="overlay" draws them on top of each other; layout="ridge" gives each its own row.
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(6.4, 4.2), constrained_layout=True)
-    if layout == "ridge":
-        return _plot_ridges(metrics, column, group, ax, xlabel, title, label_format, limits,
-                            palette, bin_width, show_band, row_labels)
-    names = list(pd.unique(metrics[group]))
-    colors = _group_colors(names, palette)
-    edges = np.arange(limits[0], limits[1] + bin_width / 2, bin_width)
-
-    for name in names:
-        values = metrics.loc[metrics[group] == name, column].dropna()
-        median = values.median()
-        ax.hist(values, bins=edges, color=colors[name], alpha=0.22)
-        ax.hist(values, bins=edges, histtype="step", color=colors[name], linewidth=1.0,
-                label=f"{name} (median {label_format(median)})")
-        ax.axvline(median, color=colors[name], linewidth=1.2, linestyle=":")
-
-    if show_band:
-        bands = pd.unique(metrics["ordinary_band"])
-        for position, band in enumerate(bands):
-            ax.axvline(band, color="#888888", linewidth=1, linestyle="--",
-                       label=("Ordinary band" if len(bands) == 1 else "Ordinary bands")
-                       if position == 0 else None)
-
-    ax.set(xlim=limits, xlabel=xlabel, ylabel="Runs")
-    ax.set_title(title)
-    ax.legend(frameon=False, loc="upper right", title=group)
-    _style(ax)
-    return ax
-
-
-def plot_max_error(metrics, group="group", ax=None, title=None, palette=None,
-                   layout="overlay", row_labels=True):
-    """P1: distribution of the maximum post-shock error across runs, by group."""
-    upper = 0.05 * np.ceil(metrics["max_error"].max() / 0.05 + 1)
-    return _plot_distribution(
-        metrics, "max_error", group, ax, palette=palette,
-        xlabel="Maximum market error (probability points)",
-        title=title or "P1: Maximum market error",
-        label_format=lambda value: f"{value:.2f}",
-        limits=(0, upper), show_band=True, layout=layout, row_labels=row_labels,
-    )
-
-
-def plot_normalised_pull(metrics, group="group", ax=None, title=None, palette=None,
-                         layout="overlay", row_labels=True):
-    """P1b: distribution of the normalised pull toward the distorting target, by group."""
-    values = metrics["normalised_pull"]
-    lower = min(-0.1, 0.05 * np.floor(values.min() / 0.05 - 1))
-    upper = max(1.0, 0.05 * np.ceil(values.max() / 0.05 + 1))
-    ax = _plot_distribution(
-        metrics, "normalised_pull", group, ax, palette=palette,
-        xlabel="Normalised pull (0 = tracks fundamental, 1 = at target)",
-        title=title or "P1b: Pull toward the whale's valuation",
-        label_format=lambda value: f"{value:.2f}",
-        limits=(lower, upper), layout=layout, row_labels=row_labels,
-    )
-    for reference in (0, 1):
-        ax.axvline(reference, color="#BBBBBB", linewidth=0.8)
-    return ax
-
-
 def plot_reversion_time(metrics, group="group", ax=None, title=None, min_at_risk=MIN_AT_RISK,
                         palette=None):
     """P2: Kaplan-Meier share of runs reverted against periods since their maximum error.
@@ -371,26 +573,6 @@ def plot_reversion_time(metrics, group="group", ax=None, title=None, min_at_risk
     return ax
 
 
-def plot_time_outside_band(metrics, group="group", ax=None, title=None,
-                           band_quantile=DEFAULT_BAND_QUANTILE, palette=None,
-                           layout="overlay", row_labels=True):
-    """P3: distribution of the share of post-shock periods spent outside the band."""
-    bands = pd.unique(metrics["ordinary_band"])
-    band_value = f" = {bands[0]:.3f}" if len(bands) == 1 else " (set per model)"
-    ax = _plot_distribution(
-        metrics, "share_outside_band", group, ax, palette=palette,
-        xlabel="Share of post-shock periods with error above the band",
-        title=title or (
-            "P3: Time with pricing error above ordinary noise\n"
-            f"Band{band_value}: {band_quantile:.0%} of control-run errors fall below it"
-        ),
-        label_format=lambda value: f"{value:.0%}",
-        limits=(0, 1), layout=layout, row_labels=row_labels,
-    )
-    ax.xaxis.set_major_formatter(PercentFormatter(xmax=1.0))
-    return ax
-
-
 def plot_distortion_figures(metrics, group="group", title=None):
     """P1-P3 on one figure, with P1b beside P1 when `normalised_pull` is present."""
     if "normalised_pull" in metrics:
@@ -407,3 +589,32 @@ def plot_distortion_figures(metrics, group="group", title=None):
     if title:
         figure.suptitle(title)
     return figure
+
+
+# ---------------- 5. Older measures
+
+
+def kaplan_meier_median(event_times, observed):
+    """
+    Median time to convergence across runs, counting runs that never converged as
+    right-censored (they had not converged by the end of the simulation) rather than dropping them.
+
+    Kaplan-Meier: S(t) = P(not yet converged by t) = prod over event times s <= t of
+    (1 - n_converged_at_s / n_still_unconverged_at_s). The median is the first event time with
+    S(t) <= 0.5. Returns NaN when fewer than half of the runs can be shown to converge, because
+    the median is then not identified by the data.
+
+    event_times : first-passage time for converged runs, censoring time (e.g. t_election) otherwise
+    observed    : True where the run converged
+    """
+    event_times = np.asarray(event_times, dtype=float)
+    observed = np.asarray(observed, dtype=bool)
+
+    survival = 1.0
+    for t in np.unique(event_times[observed]):
+        at_risk = np.sum(event_times >= t)
+        converged_now = np.sum(observed & (event_times == t))
+        survival *= 1 - converged_now / at_risk
+        if survival <= 0.5:
+            return t
+    return np.nan
