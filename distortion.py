@@ -220,7 +220,7 @@ def _style(axis):
 
 
 def _plot_ridges(metrics, column, group, ax, xlabel, title, label_format, limits, palette,
-                 bin_width, show_band):
+                 bin_width, show_band, row_labels=True):
     """One histogram per group in its own row on a shared x-axis, first group at the top.
 
     Each row is scaled to its own tallest bar, so rows show shape and position, not counts.
@@ -238,7 +238,8 @@ def _plot_ridges(metrics, column, group, ax, xlabel, title, label_format, limits
         counts, _ = np.histogram(values, bins=edges)
         scaled = base + height * counts / max(counts.max(), 1)
         ax.stairs(scaled, edges, baseline=base, fill=True, color=colors[name], alpha=0.3)
-        ax.stairs(scaled, edges, baseline=base, color=colors[name], linewidth=1.4)
+        ax.stairs(scaled, edges, baseline=base, color=colors[name], linewidth=1.0,
+                  label=str(name))
         ax.axhline(base, color="#BBBBBB", linewidth=0.6)
         median = values.median()
         ax.vlines(median, base, base + height, color=colors[name], linewidth=1.6)
@@ -248,22 +249,26 @@ def _plot_ridges(metrics, column, group, ax, xlabel, title, label_format, limits
         ticks.append(base + height / 2)
         tick_labels.append(f"{name}\nmedian {label_format(median)}")
 
-    ax.set_yticks(ticks, tick_labels, fontsize=8)
+    if row_labels:
+        ax.set_yticks(ticks, tick_labels)
+        ax.set_ylabel(group)
+    else:
+        ax.set_yticks([])                # a colour key identifies the rows instead
     ax.tick_params(axis="y", length=0)
-    ax.set(xlim=limits, ylim=(0, len(names)), xlabel=xlabel, ylabel=group)
-    ax.set_title(title, fontsize=11)
+    ax.set(xlim=limits, ylim=(0, len(names)), xlabel=xlabel)
+    ax.set_title(title)
     ax.grid(axis="x", color="#E5E5E5", linewidth=0.6)
     ax.set_axisbelow(True)
     for side in ("top", "right", "left"):
         ax.spines[side].set_visible(False)
     if show_band:
-        ax.legend(frameon=False, loc="upper right", fontsize=8)
+        ax.legend(frameon=False, loc="upper right")
     return ax
 
 
 def _plot_distribution(metrics, column, group, ax, xlabel, title, label_format, limits,
                        palette=None,
-                       bin_width=0.025, show_band=False, layout="overlay"):
+                       bin_width=0.025, show_band=False, layout="overlay", row_labels=True):
     """Histograms of one statistic by group, each median marked.
 
     layout="overlay" draws them on top of each other; layout="ridge" gives each its own row.
@@ -272,7 +277,7 @@ def _plot_distribution(metrics, column, group, ax, xlabel, title, label_format, 
         _, ax = plt.subplots(figsize=(6.4, 4.2), constrained_layout=True)
     if layout == "ridge":
         return _plot_ridges(metrics, column, group, ax, xlabel, title, label_format, limits,
-                            palette, bin_width, show_band)
+                            palette, bin_width, show_band, row_labels)
     names = list(pd.unique(metrics[group]))
     colors = _group_colors(names, palette)
     edges = np.arange(limits[0], limits[1] + bin_width / 2, bin_width)
@@ -281,7 +286,7 @@ def _plot_distribution(metrics, column, group, ax, xlabel, title, label_format, 
         values = metrics.loc[metrics[group] == name, column].dropna()
         median = values.median()
         ax.hist(values, bins=edges, color=colors[name], alpha=0.22)
-        ax.hist(values, bins=edges, histtype="step", color=colors[name], linewidth=1.6,
+        ax.hist(values, bins=edges, histtype="step", color=colors[name], linewidth=1.0,
                 label=f"{name} (median {label_format(median)})")
         ax.axvline(median, color=colors[name], linewidth=1.2, linestyle=":")
 
@@ -293,14 +298,14 @@ def _plot_distribution(metrics, column, group, ax, xlabel, title, label_format, 
                        if position == 0 else None)
 
     ax.set(xlim=limits, xlabel=xlabel, ylabel="Runs")
-    ax.set_title(title, fontsize=11)
-    ax.legend(frameon=False, loc="upper right", fontsize=8, title=group, title_fontsize=8)
+    ax.set_title(title)
+    ax.legend(frameon=False, loc="upper right", title=group)
     _style(ax)
     return ax
 
 
 def plot_max_error(metrics, group="group", ax=None, title=None, palette=None,
-                   layout="overlay"):
+                   layout="overlay", row_labels=True):
     """P1: distribution of the maximum post-shock error across runs, by group."""
     upper = 0.05 * np.ceil(metrics["max_error"].max() / 0.05 + 1)
     return _plot_distribution(
@@ -308,12 +313,12 @@ def plot_max_error(metrics, group="group", ax=None, title=None, palette=None,
         xlabel="Maximum market error (probability points)",
         title=title or "P1: Maximum market error",
         label_format=lambda value: f"{value:.2f}",
-        limits=(0, upper), show_band=True, layout=layout,
+        limits=(0, upper), show_band=True, layout=layout, row_labels=row_labels,
     )
 
 
 def plot_normalised_pull(metrics, group="group", ax=None, title=None, palette=None,
-                         layout="overlay"):
+                         layout="overlay", row_labels=True):
     """P1b: distribution of the normalised pull toward the distorting target, by group."""
     values = metrics["normalised_pull"]
     lower = min(-0.1, 0.05 * np.floor(values.min() / 0.05 - 1))
@@ -323,7 +328,7 @@ def plot_normalised_pull(metrics, group="group", ax=None, title=None, palette=No
         xlabel="Normalised pull (0 = tracks fundamental, 1 = at target)",
         title=title or "P1b: Pull toward the whale's valuation",
         label_format=lambda value: f"{value:.2f}",
-        limits=(lower, upper), layout=layout,
+        limits=(lower, upper), layout=layout, row_labels=row_labels,
     )
     for reference in (0, 1):
         ax.axvline(reference, color="#BBBBBB", linewidth=0.8)
@@ -358,17 +363,17 @@ def plot_reversion_time(metrics, group="group", ax=None, title=None, min_at_risk
     ax.set(xlim=(0, horizon), ylim=(0, 1), xlabel="Periods since maximum error",
            ylabel="Share of runs back inside the ordinary band")
     ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
-    ax.set_title(title or "P2: Market error reversion time", fontsize=11)
+    ax.set_title(title or "P2: Market error reversion time")
     ax.text(0.01, 0.99, f"Curves end when fewer than {min_at_risk} runs remain",
-            transform=ax.transAxes, va="top", fontsize=8, color="#555555")
-    ax.legend(frameon=False, loc="lower right", fontsize=8)
+            transform=ax.transAxes, va="top", color="#555555")
+    ax.legend(frameon=False, loc="lower right")
     _style(ax)
     return ax
 
 
 def plot_time_outside_band(metrics, group="group", ax=None, title=None,
                            band_quantile=DEFAULT_BAND_QUANTILE, palette=None,
-                           layout="overlay"):
+                           layout="overlay", row_labels=True):
     """P3: distribution of the share of post-shock periods spent outside the band."""
     bands = pd.unique(metrics["ordinary_band"])
     band_value = f" = {bands[0]:.3f}" if len(bands) == 1 else " (set per model)"
@@ -380,7 +385,7 @@ def plot_time_outside_band(metrics, group="group", ax=None, title=None,
             f"Band{band_value}: {band_quantile:.0%} of control-run errors fall below it"
         ),
         label_format=lambda value: f"{value:.0%}",
-        limits=(0, 1), layout=layout,
+        limits=(0, 1), layout=layout, row_labels=row_labels,
     )
     ax.xaxis.set_major_formatter(PercentFormatter(xmax=1.0))
     return ax
@@ -400,5 +405,5 @@ def plot_distortion_figures(metrics, group="group", title=None):
         plot_reversion_time(metrics, group, axes[1])
         plot_time_outside_band(metrics, group, axes[2])
     if title:
-        figure.suptitle(title, fontsize=12)
+        figure.suptitle(title)
     return figure
