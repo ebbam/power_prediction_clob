@@ -427,7 +427,7 @@ def run_market_lob(n_bettors, t_election, initial_price, outcome_uncertainty, be
     the book is empty; the reference price agents use is OrderBook.mid() (see its fallbacks).
     '''
     from collections import defaultdict
-    from convergence import first_passage_convergence, dimensionless_time
+    from distortion import first_passage_convergence, dimensionless_time
 
     if rng is None:
         rng = np.random.default_rng()

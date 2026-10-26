@@ -52,9 +52,8 @@ from distortion import (
     smoothed_absolute_error,
 )
 import figure_style as style
-import whale_convergence_experiment as whale
-from plot_whale_distortion import RHO
-from whale_convergence_experiment import make_election_path
+import experiments.whale_convergence_experiment as whale
+from experiments.whale_convergence_experiment import RHO, make_election_path
 
 
 style.apply()
