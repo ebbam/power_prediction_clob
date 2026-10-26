@@ -1,6 +1,6 @@
 import numpy as np
 
-from distortion import (
+from metrics import (
     distortion_metrics, kaplan_meier_curve, normalised_pull, smoothed_absolute_error,
 )
 

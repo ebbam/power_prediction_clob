@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from bettor import bettor, run_market_fixed_el, run_market_lob
-from distortion import (
+from metrics import (
     calibrate_band,
     distortion_metrics,
     normalised_pull,
@@ -30,7 +30,7 @@ WHALE_VALUATION = 0.70
 INITIAL_PRICE = 0.50
 OUTCOME_UNCERTAINTY = 0.05
 BASE_SEED = 2042
-OUTPUT_DIR = Path(__file__).resolve().parent
+OUTPUT_DIR = Path(__file__).resolve().parents[1]   # repository root
 FIGURES_DIR = OUTPUT_DIR / "figures"
 FIGURES_DIR.mkdir(exist_ok=True)
 SIM_DIR = OUTPUT_DIR / "sim_output"
