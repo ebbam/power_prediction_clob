@@ -1,5 +1,6 @@
 """
 Small deterministic market showing that buyers and sellers meet in the CLOB.
+Run from the repository root with `python3 -m tests.diagnostic_simulation`.
 
 Two optimists (valuation 0.70) and two pessimists (valuation 0.30), all starting flat with the
 same cash and risk aversion. Beliefs are frozen (stubbornness = 1) and the random price shading
