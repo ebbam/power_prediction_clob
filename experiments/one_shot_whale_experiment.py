@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 from bettor import bettor, run_market_lob
-from distortion import (
+from metrics import (
     calibrate_band,
     distortion_metrics,
     plot_max_error,

@@ -16,7 +16,7 @@ import pandas as pd
 
 import bettor as bettor_module
 import experiments.whale_convergence_experiment as experiment
-from distortion import (
+from metrics import (
     calibrate_band,
     distortion_metrics,
     normalised_pull,
