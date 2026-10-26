@@ -32,7 +32,7 @@ from distortion import (
     smoothed_absolute_error,
     summarize_distortion,
 )
-from whale_convergence_experiment import (
+from experiments.whale_convergence_experiment import (
     BASE_SEED,
     INITIAL_PRICE,
     MARKET_ERROR,
@@ -55,7 +55,7 @@ HORIZON = SHOT_PERIOD + 300
 SAMPLE_RUNS = (3, 35, 38)
 RHO = "ρ (whale capital share)"
 CONDITIONS = {"No market imitation": 0.0, "Market imitation = 0.3": 0.3}
-OUTPUT_DIR = Path(__file__).resolve().parent
+OUTPUT_DIR = Path(__file__).resolve().parents[1]   # repository root
 FIGURES_DIR = OUTPUT_DIR / "figures"
 FIGURES_DIR.mkdir(exist_ok=True)
 SIM_DIR = OUTPUT_DIR / "sim_output"
