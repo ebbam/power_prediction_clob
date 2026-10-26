@@ -41,7 +41,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.ticker import FuncFormatter, PercentFormatter
 
 from bettor import bettor, run_market_lob
-from distortion import (
+from metrics import (
     _plot_distribution,
     calibrate_band,
     distortion_metrics,

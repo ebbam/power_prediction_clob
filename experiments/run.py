@@ -18,7 +18,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from bettor import bettor, run_market_lob
-from distortion import kaplan_meier_median
+from metrics import kaplan_meier_median
 
 os.makedirs("figures", exist_ok=True)
 os.makedirs("sim_output", exist_ok=True)

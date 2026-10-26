@@ -19,7 +19,7 @@ import pandas as pd
 from matplotlib.ticker import PercentFormatter
 
 from bettor import bettor, run_market_lob
-from distortion import (
+from metrics import (
     calibrate_band,
     distortion_metrics,
     normalised_pull,
