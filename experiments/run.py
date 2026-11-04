@@ -1,623 +1,154 @@
 """
-run.py
+Repeated CLOB simulations without a whale, summarising per run: price accuracy, submitted
+interest, executed volume, outstanding liquidity, bid/ask spread and first-passage
+convergence time (also in units of a reference timescale: the Kaplan-Meier median
+first-passage time across runs). The market opens MARKET_ERROR above the fundamental.
 
-Run repeated CLOB prediction-market simulations and collect:
-    - price accuracy
-    - submitted trading interest
-    - executed volume
-    - outstanding liquidity
-    - bid/ask spread
-    - first-passage convergence time
-    - dimensionless convergence time
+Run from the repository root with `python3 -m experiments.run`. Saves
+sim_output/clob_simulation_summary.csv and four figures of the first run.
 """
+from pathlib import Path
 
-import copy
-import os
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
-from bettor import bettor, run_market_lob
-from metrics import kaplan_meier_median
-
-os.makedirs("figures", exist_ok=True)
-os.makedirs("sim_output", exist_ok=True)
-
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
+from bettor import Bettor, fundamental_path, run_market_lob
+from metrics import first_passage_convergence, km_median
 
 N_RUNS = 100
-
 N_BETTORS = 100
-T_ELECTION = 100
-
+N_PERIODS = 100
 INITIAL_PRICE = 0.50
 OUTCOME_UNCERTAINTY = 0.05
-
 MARKET_ERROR = 0.10
-
-# CLOB parameters
-TICK = 0.01
-TTL = 5
-MAX_MARKUP = 0.05
-
-# Convergence parameters
 CONVERGENCE_TOLERANCE = 0.02
 CONVERGENCE_WINDOW = 5
-
-# Reproducibility
 BASE_SEED = 42
+OUTPUT_DIR = Path(__file__).resolve().parents[1]   # repository root
+FIGURES_DIR = OUTPUT_DIR / "figures"
+SIM_DIR = OUTPUT_DIR / "sim_output"
 
 
-# ============================================================
-# CREATE AGENTS
-# ============================================================
-
-def create_bettors(n, rng):
-    """
-    Create a population of bettors.
-
-    Budget and initial valuation are drawn here from rng; risk aversion,
-    stubbornness and expertise are drawn per bettor inside bettor.__init__
-    from np.random, which run_one seeds.
-    """
-
-    bettors = []
-
-    for _ in range(n):
-
-        b = bettor(
-            budget=rng.uniform(100, 1000),
-            market_valuation=np.clip(
-                rng.normal(0.50, 0.05),
-                0.01,
-                0.99,
-            ),
-        )
-
-        bettors.append(b)
-
-    return bettors
-
-
-# ============================================================
-# RUN ONE SIMULATION
-# ============================================================
-
-def run_one(seed, reference_timescale=None):
-
+def run_one(seed):
+    """One market. Budgets and valuations come from rng; Bettor and update_belief draw the
+    other traits and the signals from np.random, so both are seeded."""
     rng = np.random.default_rng(seed)
-
-    # bettor.__init__ and bettor.update_belief draw from the global
-    # np.random generator, so seed it too for reproducible runs.
     np.random.seed(seed)
-
-    bettors = create_bettors(
-        N_BETTORS,
-        rng,
-    )
-
-    results = run_market_lob(
-        n_bettors=N_BETTORS,
-        t_election=T_ELECTION,
-        initial_price=INITIAL_PRICE,
-        outcome_uncertainty=OUTCOME_UNCERTAINTY,
-        bettors=bettors,
-        market_error=MARKET_ERROR,
-        tick=TICK,
-        ttl=TTL,
-        max_markup=MAX_MARKUP,
-        rng=rng,
-        convergence_tolerance=CONVERGENCE_TOLERANCE,
-        convergence_window=CONVERGENCE_WINDOW,
-        reference_timescale=reference_timescale,
-    )
-
-    return results
-
-
-# ============================================================
-# FIRST PASS:
-# ESTIMATE REFERENCE TIMESCALE
-# ============================================================
-
-print("Running baseline simulations...")
-
-baseline_results = []
-
-for run in range(N_RUNS):
-
-    seed = BASE_SEED + run
-
-    result = run_one(
-        seed,
-        reference_timescale=None,
-    )
-
-    baseline_results.append(result)
-
-
-# Reference timescale: Kaplan-Meier median first-passage time over ALL
-# runs. Runs that never converged are right-censored at T_ELECTION rather
-# than dropped; using only converged runs would bias tau_ref downwards.
-time_to_event = np.array([
-    r["convergence"]["first_passage_time"] if r["convergence"]["converged"] else T_ELECTION
-    for r in baseline_results
-])
-converged = np.array([r["convergence"]["converged"] for r in baseline_results])
-
-REFERENCE_TIMESCALE = kaplan_meier_median(time_to_event, converged)
-
-TIMESCALE_IDENTIFIED = np.isfinite(REFERENCE_TIMESCALE) and REFERENCE_TIMESCALE > 0
-
-print()
-if TIMESCALE_IDENTIFIED:
-    print(f"Reference timescale (Kaplan-Meier median): {REFERENCE_TIMESCALE:.2f} periods")
-    TIME_SCALE, TIME_LABEL = REFERENCE_TIMESCALE, r"Dimensionless time $t/\tau_{ref}$"
-else:
-    print(
-        f"Reference timescale not identified: {converged.mean():.0%} of runs converged and the "
-        "Kaplan-Meier median needs at least half. Dimensionless times are NaN; plots use periods."
-    )
-    TIME_SCALE, TIME_LABEL = 1.0, "Simulation period"
-
-
-# ============================================================
-# BUILD RUN-LEVEL SUMMARY
-# ============================================================
-
-summary_rows = []
-
-
-for run, result in enumerate(baseline_results):
-
-    conv = result["convergence"]
-
-    mid = np.asarray(
-        result["midquote"],
-        dtype=float,
-    )
-
-    fundamental = np.asarray(
-        result["gen_el"][:len(mid)],
-        dtype=float,
-    )
-
-    error = np.abs(
-        mid - fundamental
-    )
-
-    # Only calculate over valid two-sided quotes
-    valid_error = error[
-        np.isfinite(error)
-    ]
-
-    mean_absolute_error = (
-        np.mean(valid_error)
-        if len(valid_error) > 0
-        else np.nan
-    )
-
-    rmse = (
-        np.sqrt(
-            np.mean(valid_error ** 2)
-        )
-        if len(valid_error) > 0
-        else np.nan
-    )
-
-    first_passage = (
-        conv["first_passage_time"]
-        if conv["converged"]
-        else np.nan
-    )
-
-    dimensionless_convergence = (
-        first_passage / REFERENCE_TIMESCALE
-        if conv["converged"] and TIMESCALE_IDENTIFIED
-        else np.nan
-    )
-
-    valid_spreads = np.asarray(
-        result["spread"],
-        dtype=float,
-    )
-
-    valid_spreads = valid_spreads[
-        np.isfinite(valid_spreads)
-    ]
-
-    # Activity-based clock: contracts executed up to and including the
-    # first-passage period (NaN if the run never converged).
-    executed_volume_to_convergence = (
-        np.cumsum(result["traded_volume"])[conv["first_passage_time"]]
-        if conv["converged"]
-        else np.nan
-    )
-
-    summary_rows.append({
-
-        "run": run,
-
-        "executed_volume_to_convergence":
-            executed_volume_to_convergence,
-
-        "mean_desired_trades_dropped_per_period":
-            np.mean(result["n_desired_trade_dropped"]),
-
-        "converged":
-            conv["converged"],
-
-        "first_passage_time":
-            first_passage,
-
-        "confirmation_time":
-            conv["confirmation_time"],
-
-        "dimensionless_convergence_time":
-            dimensionless_convergence,
-
-        "mean_absolute_error":
-            mean_absolute_error,
-
-        "rmse":
-            rmse,
-
-        "total_submitted_volume":
-            np.sum(
-                result["submitted_volume"]
-            ),
-
-        "total_executed_volume":
-            np.sum(
-                result["traded_volume"]
-            ),
-
-        "total_trades":
-            np.sum(
-                result["n_trades"]
-            ),
-
-        "mean_bid_depth":
-            np.nanmean(
-                result["bid_depth"]
-            ),
-
-        "mean_ask_depth":
-            np.nanmean(
-                result["ask_depth"]
-            ),
-
-        "mean_total_depth":
-            np.nanmean(
-                result["total_depth"]
-            ),
-
-        "mean_spread":
-            (
-                np.mean(valid_spreads)
-                if len(valid_spreads) > 0
-                else np.nan
-            ),
-
-        "two_sided_quote_fraction":
-            np.mean(
-                np.isfinite(mid)
-            ),
-    })
-
-
-summary = pd.DataFrame(
-    summary_rows
-)
-
-
-# ============================================================
-# ADD EXECUTION RATE
-# ============================================================
-
-summary["execution_rate"] = (
-    summary["total_executed_volume"]
-    /
-    summary["total_submitted_volume"].replace(
-        0,
-        np.nan,
-    )
-)
-
-
-# ============================================================
-# PRINT RESULTS
-# ============================================================
-
-print("\n==============================")
-print("CLOB SIMULATION SUMMARY")
-print("==============================\n")
-
-print(
-    f"Runs: {N_RUNS}"
-)
-
-print(
-    f"Convergence rate: "
-    f"{summary['converged'].mean():.1%}"
-)
-
-print(
-    f"Median executed volume to convergence (converged runs): "
-    f"{summary['executed_volume_to_convergence'].median():.0f}"
-)
-
-print(
-    f"Mean absolute pricing error: "
-    f"{summary['mean_absolute_error'].mean():.4f}"
-)
-
-print(
-    f"Mean RMSE: "
-    f"{summary['rmse'].mean():.4f}"
-)
-
-print(
-    f"Mean submitted volume: "
-    f"{summary['total_submitted_volume'].mean():.2f}"
-)
-
-print(
-    f"Mean executed volume: "
-    f"{summary['total_executed_volume'].mean():.2f}"
-)
-
-print(
-    f"Mean execution rate: "
-    f"{summary['execution_rate'].mean():.2%}"
-)
-
-print(
-    f"Mean spread: "
-    f"{summary['mean_spread'].mean():.4f}"
-)
-
-print(
-    f"Mean two-sided quote availability: "
-    f"{summary['two_sided_quote_fraction'].mean():.1%}"
-)
-
-
-# ============================================================
-# SAVE RUN-LEVEL RESULTS
-# ============================================================
-
-summary.to_csv(
-    "sim_output/clob_simulation_summary.csv",
-    index=False,
-)
-
-print(
-    "\nSaved: sim_output/clob_simulation_summary.csv"
-)
-
-
-# ============================================================
-# PLOT 1:
-# EXAMPLE PRICE DISCOVERY
-# ============================================================
-
-example = baseline_results[0]
-
-mid = np.asarray(
-    example["midquote"],
-    dtype=float,
-)
-
-fundamental = np.asarray(
-    example["gen_el"][:len(mid)],
-    dtype=float,
-)
-
-time = np.arange(len(mid))
-
-plot_time = time / TIME_SCALE
-
-
-plt.figure(figsize=(9, 5))
-
-plt.plot(
-    plot_time,
-    fundamental,
-    label="Fundamental probability",
-)
-
-plt.plot(
-    plot_time,
-    mid,
-    label="CLOB midquote",
-)
-
-plt.xlabel(TIME_LABEL)
-
-plt.ylabel("Probability")
-
-plt.title(
-    "CLOB Price Discovery"
-)
-
-plt.legend()
-
-plt.tight_layout()
-
-plt.savefig(
-    "figures/clob_price_discovery.png",
-    dpi=300,
-)
-
-plt.show()
-
-
-# ============================================================
-# PLOT 2:
-# PRICING ERROR
-# ============================================================
-
-error = np.abs(
-    mid - fundamental
-)
-
-
-plt.figure(figsize=(9, 5))
-
-plt.plot(
-    plot_time,
-    error,
-)
-
-plt.axhline(
-    CONVERGENCE_TOLERANCE,
-    linestyle="--",
-    label="Convergence tolerance",
-)
-
-plt.xlabel(TIME_LABEL)
-
-plt.ylabel(
-    "Absolute pricing error"
-)
-
-plt.title(
-    "Pricing Error Through Time"
-)
-
-plt.legend()
-
-plt.tight_layout()
-
-plt.savefig(
-    "figures/clob_pricing_error.png",
-    dpi=300,
-)
-
-plt.show()
-
-
-# ============================================================
-# PLOT 3:
-# SUBMITTED VS EXECUTED VOLUME
-# ============================================================
-
-submitted = np.asarray(
-    example["submitted_volume"]
-)
-
-executed = np.asarray(
-    example["traded_volume"]
-)
-
-
-plt.figure(figsize=(9, 5))
-
-plt.plot(
-    plot_time,
-    submitted,
-    label="Submitted volume",
-)
-
-plt.plot(
-    plot_time,
-    executed,
-    label="Executed volume",
-)
-
-plt.xlabel(TIME_LABEL)
-
-plt.ylabel("Contracts")
-
-plt.title(
-    "Submitted and Executed Trading Activity"
-)
-
-plt.legend()
-
-plt.tight_layout()
-
-plt.savefig(
-    "figures/clob_market_activity.png",
-    dpi=300,
-)
-
-plt.show()
-
-
-# ============================================================
-# PLOT 4:
-# OUTSTANDING LIQUIDITY
-# ============================================================
-
-bid_depth = np.asarray(
-    example["bid_depth"]
-)
-
-ask_depth = np.asarray(
-    example["ask_depth"]
-)
-
-
-plt.figure(figsize=(9, 5))
-
-plt.plot(
-    plot_time,
-    bid_depth,
-    label="Bid depth",
-)
-
-plt.plot(
-    plot_time,
-    ask_depth,
-    label="Ask depth",
-)
-
-plt.xlabel(TIME_LABEL)
-
-plt.ylabel(
-    "Outstanding contracts"
-)
-
-plt.title(
-    "CLOB Outstanding Liquidity"
-)
-
-plt.legend()
-
-plt.tight_layout()
-
-plt.savefig(
-    "figures/clob_liquidity.png",
-    dpi=300,
-)
-
-plt.show()
-
-plt.figure(figsize=(9, 5))
-
-plt.plot(
-    plot_time,
-    example["submitted_buy_volume"],
-    label="Submitted buy volume",
-)
-
-plt.plot(
-    plot_time,
-    example["submitted_sell_volume"],
-    label="Submitted sell volume",
-)
-
-plt.xlabel(TIME_LABEL)
-plt.ylabel("Contracts")
-plt.title("Submitted Buy and Sell Interest")
-plt.legend()
-plt.tight_layout()
-plt.show()
-
-
-print("\nAnalysis complete.")
+    bettors = [Bettor(budget=rng.uniform(100, 1000),
+                      market_valuation=np.clip(rng.normal(0.50, 0.05), 0.01, 0.99))
+               for _ in range(N_BETTORS)]
+    path = fundamental_path(INITIAL_PRICE, N_PERIODS, OUTCOME_UNCERTAINTY)
+    return run_market_lob(bettors, N_PERIODS, path, INITIAL_PRICE + MARKET_ERROR, rng=rng)
+
+
+def convergence(record):
+    return first_passage_convergence(record["midquote"], record["fundamental"][:N_PERIODS],
+                                     CONVERGENCE_TOLERANCE, CONVERGENCE_WINDOW)
+
+
+def summarise(record, timescale):
+    """One row of run statistics; errors and spreads only over two-sided quotes."""
+    conv = convergence(record)
+    error = conv["absolute_error"]
+    spreads = record["spread"][np.isfinite(record["spread"])]
+    first = conv["first_passage_time"]
+    submitted, executed = record["submitted_volume"].sum(), record["traded_volume"].sum()
+    return {
+        "converged": conv["converged"],
+        "first_passage_time": first,
+        "confirmation_time": conv["confirmation_time"],
+        "dimensionless_convergence_time": first / timescale,
+        "executed_volume_to_convergence": (
+            np.cumsum(record["traded_volume"])[first] if conv["converged"] else np.nan),
+        "mean_desired_trades_dropped_per_period": np.mean(record["n_desired_trade_dropped"]),
+        "mean_absolute_error": np.nanmean(error),
+        "rmse": np.sqrt(np.nanmean(error ** 2)),
+        "total_submitted_volume": submitted,
+        "total_executed_volume": executed,
+        "execution_rate": executed / submitted if submitted else np.nan,
+        "total_trades": record["n_trades"].sum(),
+        "mean_bid_depth": np.mean(record["bid_depth"]),
+        "mean_ask_depth": np.mean(record["ask_depth"]),
+        "mean_total_depth": np.mean(record["total_depth"]),
+        "mean_spread": spreads.mean() if spreads.size else np.nan,
+        "two_sided_quote_fraction": np.mean(np.isfinite(record["midquote"])),
+    }
+
+
+def reference_timescale(records):
+    """Kaplan-Meier median first-passage time, with unconverged runs right-censored at
+    N_PERIODS (dropping them would bias it downwards); NaN if under half the runs converge."""
+    passages = [convergence(record) for record in records]
+    converged = np.array([p["converged"] for p in passages])
+    times = np.where(converged, [p["first_passage_time"] for p in passages], N_PERIODS)
+    return km_median(times, converged, N_PERIODS), converged.mean()
+
+
+def plot_example(record, timescale):
+    """Four diagnostics of one run, in units of the reference timescale when identified."""
+    identified = np.isfinite(timescale)
+    time = np.arange(N_PERIODS) / (timescale if identified else 1.0)
+    label = r"Dimensionless time $t/\tau_{ref}$" if identified else "Simulation period"
+    fundamental = record["fundamental"][:N_PERIODS]
+    plots = {
+        "clob_price_discovery": ("CLOB Price Discovery", "Probability",
+                                 {"Fundamental probability": fundamental,
+                                  "CLOB midquote": record["midquote"]}),
+        "clob_pricing_error": ("Pricing Error Through Time", "Absolute pricing error",
+                               {"Absolute error": np.abs(record["midquote"] - fundamental)}),
+        "clob_market_activity": ("Submitted and Executed Trading Activity", "Contracts",
+                                 {"Submitted volume": record["submitted_volume"],
+                                  "Executed volume": record["traded_volume"]}),
+        "clob_liquidity": ("CLOB Outstanding Liquidity", "Outstanding contracts",
+                           {"Bid depth": record["bid_depth"],
+                            "Ask depth": record["ask_depth"]}),
+    }
+    for name, (title, ylabel, series) in plots.items():
+        figure, ax = plt.subplots(figsize=(9, 5), tight_layout=True)
+        for series_label, values in series.items():
+            ax.plot(time, values, label=series_label)
+        if name == "clob_pricing_error":
+            ax.axhline(CONVERGENCE_TOLERANCE, linestyle="--", label="Convergence tolerance")
+        ax.set(xlabel=label, ylabel=ylabel, title=title)
+        ax.legend()
+        figure.savefig(FIGURES_DIR / f"{name}.png", dpi=300)
+        plt.close(figure)
+
+
+def main():
+    print("Running baseline simulations...")
+    records = [run_one(BASE_SEED + run) for run in range(N_RUNS)]
+    timescale, converged_share = reference_timescale(records)
+    if np.isfinite(timescale):
+        print(f"Reference timescale (Kaplan-Meier median): {timescale:.2f} periods")
+    else:
+        print(f"Reference timescale not identified: {converged_share:.0%} of runs converged "
+              "and the Kaplan-Meier median needs at least half. Plots use periods.")
+
+    summary = pd.DataFrame([{"run": run, **summarise(record, timescale)}
+                            for run, record in enumerate(records)])
+    print(f"\nRuns: {N_RUNS}")
+    for column, label, fmt in (
+        ("converged", "Convergence rate", ".1%"),
+        ("mean_absolute_error", "Mean absolute pricing error", ".4f"),
+        ("rmse", "Mean RMSE", ".4f"),
+        ("total_submitted_volume", "Mean submitted volume", ".2f"),
+        ("total_executed_volume", "Mean executed volume", ".2f"),
+        ("execution_rate", "Mean execution rate", ".2%"),
+        ("mean_spread", "Mean spread", ".4f"),
+        ("two_sided_quote_fraction", "Mean two-sided quote availability", ".1%"),
+    ):
+        print(f"{label}: {summary[column].mean():{fmt}}")
+    print("Median executed volume to convergence (converged runs): "
+          f"{summary['executed_volume_to_convergence'].median():.0f}")
+
+    SIM_DIR.mkdir(exist_ok=True)
+    FIGURES_DIR.mkdir(exist_ok=True)
+    summary.to_csv(SIM_DIR / "clob_simulation_summary.csv", index=False)
+    print("\nSaved: sim_output/clob_simulation_summary.csv")
+    plot_example(records[0], timescale)
+
+
+if __name__ == "__main__":
+    main()

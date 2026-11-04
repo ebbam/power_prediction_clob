@@ -25,8 +25,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(HERE))          # repository root, for bettor.py
-from bettor import bettor, run_market_lob
+sys.path.insert(0, os.path.dirname(HERE))          # repository root, for Bettor.py
+from bettor import Bettor, run_market_lob
 
 # ---------------------------------------------------------------- parameters
 N_AGENTS = 100          # non-whale agents
@@ -53,7 +53,7 @@ def convergence_factor(rho, h, s):
 def make_population(seed, s=S_DEFAULT, h=0.0, noise=0.0, valuation=ETA):
     """Non-whale agents with log utility; noise is the signal standard deviation (1 - expertise)."""
     rng = np.random.default_rng(seed)
-    return [bettor(budget=rng.uniform(100, 1000), market_valuation=valuation, risk_av=1.0,
+    return [Bettor(budget=rng.uniform(100, 1000), market_valuation=valuation, risk_av=1.0,
                    stubbornness=s, expertise=1 - noise, market_imitation=h)
             for _ in range(N_AGENTS)]
 
@@ -61,14 +61,13 @@ def make_population(seed, s=S_DEFAULT, h=0.0, noise=0.0, valuation=ETA):
 def add_whale(population, rho):
     """Append a whale holding a share rho of total wealth."""
     non_whale_wealth = sum(b.budget for b in population)
-    whale = bettor(budget=non_whale_wealth * rho / (1 - rho), market_valuation=W, risk_av=1.0, whale=True)
+    whale = Bettor(budget=non_whale_wealth * rho / (1 - rho), market_valuation=W, risk_av=1.0, whale=True)
     return population + [whale]
 
 
 def simulate(population, periods, rng, initial_price=ETA):
     """Run the order-book market with eta fixed; return the end-of-period price error m_t - eta."""
-    result = run_market_lob(len(population), periods, initial_price, 0.0, population,
-                            gen_el=np.full(periods, ETA), rng=rng)
+    result = run_market_lob(population, periods, np.full(periods, ETA), initial_price, rng=rng)
     return np.array(result["price_history"][1:]) - ETA
 
 

@@ -2,8 +2,7 @@
 
 A transient-shock counterpart to whale_convergence_experiment.py, which uses a whale that
 keeps trading for the rest of the run. Uses the same populations, fundamental paths and
-seeds, and the existing run_market_lob unchanged: the whale sits in the population from
-period 0 but stays idle until SHOT_PERIOD, submits one buy order at its valuation, and then
+seeds: the whale sits in the population from period 0 but stays idle until SHOT_PERIOD, submits one buy order at its valuation, and then
 never trades again. Any unfilled part of the order rests in the book until the whale's next
 activation (the following period), when the market cancels it.
 
@@ -22,7 +21,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from bettor import bettor, run_market_lob
+from bettor import Bettor, run_market_lob, whale_budget
 from metrics import (
     calibrate_band,
     distortion_metrics,
@@ -35,14 +34,13 @@ from metrics import (
 from experiments.whale_convergence_experiment import (
     BASE_SEED,
     INITIAL_PRICE,
-    MARKET_ERROR,
     MAX_MARKUP,
-    N_BETTORS,
-    OUTCOME_UNCERTAINTY,
     TICK,
     TTL,
+    draw_run,
     make_election_path,
     make_population,
+    shared_legend,
 )
 
 
@@ -62,7 +60,7 @@ SIM_DIR = OUTPUT_DIR / "sim_output"
 SIM_DIR.mkdir(exist_ok=True)
 
 
-class OneShotWhale(bettor):
+class OneShotWhale(Bettor):
     """A whale that trades exactly once, in period `shot_period`, and is idle otherwise."""
 
     def __init__(self, budget, market_valuation, shot_period):
@@ -90,29 +88,23 @@ class OneShotWhale(bettor):
 def run_one(run, rho, imitation):
     seed = BASE_SEED + run
     path = make_election_path(seed)
-    population = make_population(seed, rho)
-    for agent in population:
-        agent.market_imitation = imitation
-    capital = sum(agent.budget for agent in population)
-    whale = OneShotWhale(capital * rho / (1 - rho), WHALE_VALUATION, SHOT_PERIOD)
+    population = make_population(seed, rho, market_imitation=imitation)
+    whale = OneShotWhale(whale_budget(population, rho), WHALE_VALUATION, SHOT_PERIOD)
     population.append(whale)
-    whale_budget = whale.budget
 
-    record = run_market_lob(
-        N_BETTORS, HORIZON, INITIAL_PRICE, OUTCOME_UNCERTAINTY, population,
-        market_error=MARKET_ERROR, tick=TICK, ttl=TTL, max_markup=MAX_MARKUP,
-        rng=np.random.default_rng(seed), gen_el=path,
-    )
+    record = run_market_lob(population, HORIZON, path, INITIAL_PRICE, tick=TICK, ttl=TTL,
+                            max_markup=MAX_MARKUP, rng=np.random.default_rng(seed))
     trajectory = pd.DataFrame({
         "run": run, "seed": seed, "whale_share": rho, "market_imitation": imitation,
         "period": np.arange(HORIZON),
         "midquote": record["midquote"], "fundamental": path[:HORIZON],
     })
+    spent = whale.initial_budget - whale.budget
     shot = {
-        "whale_budget": whale_budget,
+        "whale_budget": whale.initial_budget,
         "contracts_bought": whale.n_contracts,
-        "cash_spent": whale_budget - whale.budget,
-        "share_of_budget_spent": (whale_budget - whale.budget) / whale_budget if rho else np.nan,
+        "cash_spent": spent,
+        "share_of_budget_spent": spent / whale.initial_budget if rho else np.nan,
     }
     return trajectory, shot
 
@@ -129,50 +121,18 @@ def plot_sample_runs(trajectories, metrics, band, filename, title):
             path = trajectories.loc[(trajectories["whale_share"] == rho)
                                     & (trajectories["run"] == run)]
             result = metrics.loc[(metrics[RHO] == rho) & (metrics["run"] == run)].iloc[0]
-            peak = SHOT_PERIOD + result["peak_time_after_shock"]
             price_ax, error_ax = axes[2 * row, column], axes[2 * row + 1, column]
-
-            price_ax.plot(path["period"], path["fundamental"], color="#222222", linewidth=1.4,
-                          label="Fundamental (true probability)")
-            price_ax.plot(path["period"], path["midquote"].ffill(), color="#0072B2",
-                          linewidth=1.2, label="Market price (midquote)")
-            price_ax.set(ylim=(0, 1))
+            draw_run(price_ax, error_ax, path.assign(price=path["midquote"].ffill()), result,
+                     band, SHOT_PERIOD)
             price_ax.set_title(f"ρ = {rho:g}, {result['contracts_bought']:,.0f} contracts bought",
                                fontsize=10)
             if column == 0:
                 price_ax.set_ylabel(f"Run {run}\nprice", fontsize=9)
-
-            error = path["smoothed_error"]
-            error_ax.fill_between(path["period"], band, error, where=error > band,
-                                  color="#D55E00", alpha=0.25, linewidth=0,
-                                  label="Outside band (P3)")
-            error_ax.plot(path["period"], error, color="#D55E00", linewidth=1.2,
-                          label="Smoothed |error|")
-            error_ax.axhline(band, color="#888888", linewidth=0.8, linestyle="--",
-                             label="Ordinary band")
-            error_ax.plot(peak, result["max_error"], "v", color="#D55E00", markersize=7,
-                          label="Maximum error (P1)")
-            if result["reverted"]:
-                error_ax.axvline(peak + result["reversion_time"], color="#D55E00",
-                                 linewidth=1, linestyle=":", label="Reversion (P2)")
-            error_ax.set(ylim=(0, 0.85))
-            if column == 0:
                 error_ax.set_ylabel("|error|", fontsize=9)
-
-            for ax in (price_ax, error_ax):
-                ax.axvline(SHOT_PERIOD, color="#BBBBBB", linewidth=0.8)
-                ax.spines["top"].set_visible(False)
-                ax.spines["right"].set_visible(False)
-                ax.tick_params(labelsize=8)
 
     for ax in axes[-1]:
         ax.set_xlabel(f"Period (whale trades once at {SHOT_PERIOD})", fontsize=9)
-    handles, labels = [], []
-    for ax in (axes[0, -1], axes[1, -1]):
-        for handle, label in zip(*ax.get_legend_handles_labels()):
-            if label not in labels:
-                handles.append(handle), labels.append(label)
-    figure.legend(handles, labels, loc="outside lower center", ncol=3, frameon=False, fontsize=9)
+    shared_legend(figure, (axes[0, -1], axes[1, -1]), ncol=3)
     figure.suptitle(title, fontsize=12)
     figure.savefig(FIGURES_DIR / filename, dpi=200, bbox_inches="tight")
     plt.close(figure)

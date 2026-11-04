@@ -15,14 +15,13 @@ order priced exactly at the reservation price has a utility-optimal quantity of 
 """
 import numpy as np
 
-from bettor import bettor, run_market_lob, worst_case_wealth
+from bettor import Bettor, run_market_lob
 
 valuations = [0.70, 0.70, 0.30, 0.30]
-population = [bettor(budget=100.0, market_valuation=v, risk_av=0.5, stubbornness=1.0, expertise=1.0)
+population = [Bettor(budget=100.0, market_valuation=v, risk_av=0.5, stubbornness=1.0, expertise=1.0)
               for v in valuations]
 
-result = run_market_lob(n_bettors=4, t_election=6, initial_price=0.5, outcome_uncertainty=0.0,
-                        bettors=population, gen_el=np.full(6, 0.5), max_markup=0.10,
+result = run_market_lob(population, 6, np.full(6, 0.5), initial_price=0.5, max_markup=0.10,
                         rng=np.random.default_rng(0))
 
 print("period  buy_orders  sell_orders  traded  best_bid  best_ask  midquote")
@@ -41,5 +40,5 @@ assert result["traded_volume"][0] > 0
 assert all(b.n_contracts > 0 for b in optimists) and all(b.n_contracts < 0 for b in pessimists)
 assert sum(b.n_contracts for b in population) == 0
 assert np.isclose(sum(b.budget for b in population), 400.0)
-assert min(worst_case_wealth(b) for b in population) >= 0
+assert min(b.worst_case_wealth() for b in population) >= 0
 print("\nAll checks passed: buyers and sellers interact as intended.")

@@ -4,14 +4,15 @@ Run from the repository root with `python3 -m pytest tests` or simply `python3 -
 """
 import numpy as np
 
-from bettor import bettor, run_market_lob, worst_case_wealth
+from bettor import Bettor, add_whale, fundamental_path, run_market_lob
 from orderbook import OrderBook
+from walrasian import clear_orders
 
 
 def make_bettor(**kwargs):
     defaults = dict(budget=500.0, market_valuation=0.5, n_contracts=0, risk_av=0.5,
                     stubbornness=0.3, expertise=0.9)
-    return bettor(**{**defaults, **kwargs})
+    return Bettor(**{**defaults, **kwargs})
 
 
 # ---------------------------------------------------------------- order book
@@ -22,8 +23,8 @@ def test_bid_and_ask_price_priority():
         ob.submit(trader, +1, price, 10, t=0, ttl=5)
     for trader, price in enumerate([0.80, 0.60, 0.70], start=10):
         ob.submit(trader, -1, price, 10, t=0, ttl=5)
-    assert [o[3] for o in ob.bids] == [0.50, 0.40, 0.30]   # negative-price keys sort highest bid first
-    assert [o[3] for o in ob.asks] == [0.60, 0.70, 0.80]
+    assert [o.price for o in ob.bids] == [0.50, 0.40, 0.30]   # negative-price keys sort highest bid first
+    assert [o.price for o in ob.asks] == [0.60, 0.70, 0.80]
     assert ob.best_bid() == 0.50 and ob.best_ask() == 0.60
 
 
@@ -33,7 +34,7 @@ def test_time_priority_at_equal_price():
     ob.submit(2, -1, 0.60, 5, t=0, ttl=5)
     fills = ob.submit(3, +1, 0.60, 5, t=0, ttl=5)
     assert fills == [(3, 1, 0.60, 5)]                       # earlier order at the same price fills first
-    assert [o[2] for o in ob.asks] == [2]
+    assert [o.trader for o in ob.asks] == [2]
 
 
 def test_execution_at_resting_price_and_level_sweep():
@@ -59,7 +60,7 @@ def test_partial_fill_of_resting_order():
     ob = OrderBook()
     ob.submit(1, +1, 0.50, 10, t=0, ttl=5)
     ob.submit(2, -1, 0.50, 3, t=0, ttl=5)
-    assert ob.depth() == (7, 0) and ob.bids[0][2] == 1      # resting order keeps its place with 7 left
+    assert ob.depth() == (7, 0) and ob.bids[0].trader == 1      # resting order keeps its place with 7 left
 
 
 def test_book_never_left_crossed_or_locked():
@@ -78,8 +79,8 @@ def test_cancel_and_expiry():
     ob.submit(1, +1, 0.40, 5, t=0, ttl=2)                   # rests during periods 0 and 1
     ob.submit(2, -1, 0.60, 5, t=1, ttl=5)
     assert ob.expire(1) == [] and ob.depth() == (5, 5)
-    assert [o[2] for o in ob.expire(2)] == [1] and ob.depth() == (0, 5)
-    assert [o[2] for o in ob.cancel_trader(2)] == [2] and ob.depth() == (0, 0)
+    assert [o.trader for o in ob.expire(2)] == [1] and ob.depth() == (0, 5)
+    assert [o.trader for o in ob.cancel_trader(2)] == [2] and ob.depth() == (0, 0)
 
 
 def test_reference_price_fallbacks():
@@ -96,7 +97,7 @@ def test_reference_price_fallbacks():
 
 def test_bettors_get_independent_random_traits():
     np.random.seed(0)
-    population = [bettor() for _ in range(5)]
+    population = [Bettor() for _ in range(5)]
     assert len({b.risk_av for b in population}) == 5
     assert len({b.stubbornness for b in population}) == 5
 
@@ -131,7 +132,7 @@ def test_selling_from_flat_opens_fully_collateralised_short():
     b.budget += 50 * 0.40                                   # cash received when selling
     assert b.budget + b.n_contracts == 70.0                 # W_yes = C + Q: pays 1 per contract sold
     assert b.budget == 120.0                                # W_no  = C
-    assert worst_case_wealth(b) >= 0
+    assert b.worst_case_wealth() >= 0
 
 
 def test_trade_is_always_collateralised_at_any_fill_price():
@@ -141,20 +142,20 @@ def test_trade_is_always_collateralised_at_any_fill_price():
         b = make_bettor(budget=rng.uniform(1, 1000), market_valuation=rng.uniform(0.01, 0.99),
                         risk_av=rng.uniform(0, 1))
         b.n_contracts = int(rng.integers(-int(b.budget), int(b.budget)))   # any position with W_yes >= 0
-        assert worst_case_wealth(b) >= 0
+        assert b.worst_case_wealth() >= 0
         p = round(rng.uniform(0.01, 0.99), 2)
         q = b.trade(p)
         side = int(np.sign(q))
         for filled in [q, q // 2]:
             for fill_price in [p, p - side * 0.01]:              # limit price, or one tick better
-                assert worst_case_wealth(b, filled, np.clip(fill_price, 0.01, 0.99)) >= -1e-9
+                assert b.worst_case_wealth(filled, np.clip(fill_price, 0.01, 0.99)) >= -1e-9
 
 
 def test_buying_to_cover_and_selling_a_long_position():
     b = make_bettor(budget=100.0, n_contracts=-50, market_valuation=0.9)    # short, now thinks YES likely
     assert b.trade(0.5) > 0                                                  # wants to buy back
     c = make_bettor(budget=100.0, n_contracts=200, market_valuation=0.1)     # long, now thinks YES unlikely
-    assert c.trade(0.5) < 0 and worst_case_wealth(c, c.trade(0.5), 0.5) >= 0
+    assert c.trade(0.5) < 0 and c.worst_case_wealth(c.trade(0.5), 0.5) >= 0
 
 
 # ---------------------------------------------------------------- full simulation invariants
@@ -162,41 +163,45 @@ def test_buying_to_cover_and_selling_a_long_position():
 def test_simulation_conserves_cash_and_contracts_and_keeps_one_order_per_trader():
     np.random.seed(3)
     rng = np.random.default_rng(3)
-    population = [bettor(budget=rng.uniform(100, 1000), market_valuation=rng.normal(0.5, 0.05)) for _ in range(30)]
+    population = [Bettor(budget=rng.uniform(100, 1000), market_valuation=rng.normal(0.5, 0.05)) for _ in range(30)]
     cash_before = sum(b.budget for b in population)
-    result = run_market_lob(30, 30, 0.5, 0.05, population, rng=rng)   # asserts conservation every period
+    path = fundamental_path(0.5, 30, 0.05)
+    result = run_market_lob(population, 30, path, 0.5, rng=rng)   # asserts conservation every period
     assert np.isclose(sum(b.budget for b in population), cash_before)
     assert sum(b.n_contracts for b in population) == 0
     assert result["traded_volume"].sum() > 0
     assert np.all(result["n_collateral_rejected"] == 0)
 
 
-def test_whale_is_added_at_configured_time_with_requested_initial_capital_share():
+def test_whale_holds_requested_share_of_money():
     population = [make_bettor(budget=50.0) for _ in range(4)]
-    rng = np.random.default_rng(4)
+    whale = add_whale(population, 0.5, 0.7, entry_time=2)
+    assert population[-1] is whale and whale.whale and whale.entry_time == 2
+    assert np.isclose(whale.budget, 200.0) and whale.market_valuation == 0.7
+    assert add_whale(population, 0.0, 0.7) is None and len(population) == 5
 
-    result = run_market_lob(
-        4,
-        4,
-        0.5,
-        0.0,
-        population,
-        gen_el=np.full(4, 0.5),
-        rng=rng,
-        whale_share=0.5,
-        whale_start=2,
-        whale_valuation=0.7,
-    )
 
-    assert len(population) == 5
-    assert population[-1].whale
-    assert population[-1].market_valuation == 0.7
-    assert np.isclose(result["whale_initial_budget"], 200.0)
-    assert result["whale_added_at"] == 2
-    assert np.isclose(result["market_cash_before_whale"], 200.0)
-    assert np.isclose(result["market_cash_after_whale"], 400.0)
-    assert np.isclose(sum(b.budget for b in population), 400.0)
-    assert np.isclose(result["final_budgets"][-1], population[-1].budget)
+def test_agents_trade_only_from_their_entry_time():
+    def market(n_periods):
+        population = [make_bettor(budget=50.0, stubbornness=1.0) for _ in range(4)]
+        whale = add_whale(population, 0.5, 0.9, entry_time=2)
+        result = run_market_lob(population, n_periods, np.full(n_periods, 0.5), 0.5,
+                                rng=np.random.default_rng(4))
+        return whale, result
+
+    whale, result = market(2)
+    assert whale.n_contracts == 0 and whale.budget == whale.initial_budget
+    assert np.allclose(result["beliefs"], 0.5)          # the whale's 0.9 is not yet counted
+    whale, result = market(4)
+    assert whale.n_contracts > 0                        # it buys once it has entered
+    assert result["beliefs"][-1] > 0.5
+
+
+def test_walrasian_clearing_fills_short_side_and_rations_long_side():
+    np.random.seed(0)
+    filled = clear_orders(np.array([5, 3, -4, 0]))
+    assert filled[2] == -4 and filled[3] == 0
+    assert filled[:2].sum() == 4 and np.all((0 <= filled[:2]) & (filled[:2] <= [5, 3]))
 
 
 if __name__ == "__main__":

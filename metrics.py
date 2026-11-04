@@ -1,5 +1,5 @@
 """Model-agnostic measures of the size and persistence of a price distortion, and of a
-run's convergence to the fundamental (merged from convergence.py).
+run's convergence to the fundamental.
 
 Every statistic is computed for every run, distorted or not, from three inputs any
 market model can supply: the price path, the fundamental path and the shock time.
@@ -30,11 +30,9 @@ the price inside the band for its first few periods) from counting as an instant
 Sections, most used first:
     1. Distortion statistics           smoothed error, band, P1, P1b, P3  (paper Figures 2-3)
     2. Distortion plots                histograms and ridgelines by group  (paper Figures 2-3)
-    3. Convergence of a single run     first passage into a tolerance band (every
-                                       bettor.run_market_lob record; experiments/run.py)
+    3. Convergence of a single run     first passage into a tolerance band (experiments/run.py)
     4. Reversion time and summaries    P2 Kaplan-Meier, summary tables, combined P1-P3 figure
                                        (supplementary experiments only)
-    5. Older measures                  kept for experiments/run.py; superseded by km_median
 """
 
 import math
@@ -96,15 +94,12 @@ def distortion_metrics(smoothed_error, shock_time, band, window=DEFAULT_WINDOW):
     peak_time = int(np.nanargmax(post))
     max_error = float(post[peak_time])
 
-    reversion_time, reverted = float(horizon - peak_time), False
-    inside = valid & (post <= band)
     if max_error <= band:
-        reversion_time, reverted = 0.0, True
+        reversion = peak_time
     else:
-        for start in range(peak_time, horizon - window + 1):
-            if inside[start:start + window].all():
-                reversion_time, reverted = float(start - peak_time), True
-                break
+        reversion = first_sustained(valid & (post <= band), window, start=peak_time)
+    reverted = reversion is not None
+    reversion_time = float((reversion if reverted else horizon) - peak_time)
 
     return {
         "max_error": max_error,
@@ -115,6 +110,14 @@ def distortion_metrics(smoothed_error, shock_time, band, window=DEFAULT_WINDOW):
         "share_outside_band": float(np.mean(valid & (post > band))),
         "horizon_after_shock": horizon,
     }
+
+
+def first_sustained(mask, window, start=0):
+    """First index i >= start at which mask[i:i + window] is all True; None if there is none."""
+    for i in range(start, len(mask) - window + 1):
+        if mask[i:i + window].all():
+            return i
+    return None
 
 
 def normalised_pull(prices, fundamentals, target, shock_time):
@@ -287,164 +290,35 @@ def _style(axis):
 # ---------------- 3. Convergence of a single run
 
 
-def first_passage_convergence(
-    prices,
-    fundamentals,
-    tolerance=0.02,
-    window=5,
-):
+def first_passage_convergence(prices, fundamentals, tolerance=0.02, window=5):
     """
-    Measure sustained convergence of market prices
-    to the underlying fundamental probability.
+    First sustained entry of the price into a band of +-tolerance around the fundamental:
+    the first `window` consecutive periods within it. Missing prices never count as converged.
 
-    Parameters
-    ----------
-    prices : array-like
-        Observed market prices, preferably midquotes.
-
-    fundamentals : array-like
-        True probabilities at matching simulation times.
-
-    tolerance : float
-        Maximum absolute pricing error.
-
-    window : int
-        Number of consecutive periods required
-        inside the tolerance band.
-
-    Returns
-    -------
-    dict
-        first_passage_time:
-            First period of the first qualifying window.
-
-        confirmation_time:
-            Last period of the first qualifying window.
-
-        converged:
-            Whether sustained convergence occurred.
-
-        censored:
-            Whether convergence was not observed.
-
-        absolute_error:
-            Absolute pricing-error trajectory.
-
-        within_tolerance:
-            Boolean trajectory indicating whether
-            each valid observation is within tolerance.
+    Returns first_passage_time and confirmation_time (first and last period of that window,
+    NaN if it never happens), converged, and the absolute_error and within_tolerance paths.
     """
-
     prices = np.asarray(prices, dtype=float)
-
-    fundamentals = np.asarray(
-        fundamentals,
-        dtype=float,
-    )
-
-    if prices.ndim != 1 or fundamentals.ndim != 1:
-        raise ValueError(
-            "Prices and fundamentals must be 1D arrays"
-        )
-
-    if len(prices) != len(fundamentals):
-        raise ValueError(
-            "Prices and fundamentals must have equal length"
-        )
-
+    fundamentals = np.asarray(fundamentals, dtype=float)
+    if prices.shape != fundamentals.shape or prices.ndim != 1:
+        raise ValueError("Prices and fundamentals must be 1D arrays of equal length")
     if tolerance < 0:
-        raise ValueError(
-            "Tolerance must be nonnegative"
-        )
+        raise ValueError("Tolerance must be nonnegative")
+    if not isinstance(window, (int, np.integer)) or window < 1:
+        raise ValueError("Window must be a positive integer")
 
-    if not isinstance(window, (int, np.integer)):
-        raise ValueError(
-            "Window must be an integer"
-        )
-
-    if window < 1:
-        raise ValueError(
-            "Window must be at least 1"
-        )
-
-    # Missing prices must never count as convergence.
-    valid = (
-        np.isfinite(prices)
-        & np.isfinite(fundamentals)
-    )
-
-    absolute_error = np.full(
-        len(prices),
-        np.nan,
-        dtype=float,
-    )
-
-    absolute_error[valid] = np.abs(
-        prices[valid] - fundamentals[valid]
-    )
-
-    within_tolerance = (
-        valid
-        & (absolute_error <= tolerance)
-    )
-
-    # Search for the first sustained convergence window.
-    first_passage_time = np.nan
-    confirmation_time = np.nan
-
-    for start in range(
-        len(prices) - window + 1
-    ):
-
-        end = start + window
-
-        if np.all(within_tolerance[start:end]):
-
-            first_passage_time = start
-            confirmation_time = end - 1
-
-            break
-
-    converged = bool(
-        np.isfinite(first_passage_time)
-    )
-
+    absolute_error = np.abs(prices - fundamentals)          # NaN where either is missing
+    with np.errstate(invalid="ignore"):
+        within_tolerance = np.isfinite(absolute_error) & (absolute_error <= tolerance)
+    first = first_sustained(within_tolerance, window)
+    converged = first is not None
     return {
-        "first_passage_time": first_passage_time,
-        "confirmation_time": confirmation_time,
+        "first_passage_time": first if converged else np.nan,
+        "confirmation_time": first + window - 1 if converged else np.nan,
         "converged": converged,
-        "censored": not converged,
         "absolute_error": absolute_error,
         "within_tolerance": within_tolerance,
-        "tolerance": tolerance,
-        "window": window,
     }
-
-
-def dimensionless_time(
-    time,
-    reference_timescale,
-):
-    """
-    Convert simulation time into dimensionless time.
-
-    t_hat = t / tau_ref
-
-    The reference timescale should preferably be
-    estimated from independent baseline simulations.
-    """
-
-    if (
-        not np.isfinite(reference_timescale)
-        or reference_timescale <= 0
-    ):
-        raise ValueError(
-            "reference_timescale must be finite and positive"
-        )
-
-    time = np.asarray(time, dtype=float)
-
-    return time / reference_timescale
 
 
 # ---------------- 4. Reversion time (P2) and summaries
@@ -589,32 +463,3 @@ def plot_distortion_figures(metrics, group="group", title=None):
     if title:
         figure.suptitle(title)
     return figure
-
-
-# ---------------- 5. Older measures
-
-
-def kaplan_meier_median(event_times, observed):
-    """
-    Median time to convergence across runs, counting runs that never converged as
-    right-censored (they had not converged by the end of the simulation) rather than dropping them.
-
-    Kaplan-Meier: S(t) = P(not yet converged by t) = prod over event times s <= t of
-    (1 - n_converged_at_s / n_still_unconverged_at_s). The median is the first event time with
-    S(t) <= 0.5. Returns NaN when fewer than half of the runs can be shown to converge, because
-    the median is then not identified by the data.
-
-    event_times : first-passage time for converged runs, censoring time (e.g. t_election) otherwise
-    observed    : True where the run converged
-    """
-    event_times = np.asarray(event_times, dtype=float)
-    observed = np.asarray(observed, dtype=bool)
-
-    survival = 1.0
-    for t in np.unique(event_times[observed]):
-        at_risk = np.sum(event_times >= t)
-        converged_now = np.sum(observed & (event_times == t))
-        survival *= 1 - converged_now / at_risk
-        if survival <= 0.5:
-            return t
-    return np.nan

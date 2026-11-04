@@ -1,0 +1,6 @@
+# Tested with Python 3.10 and these versions. matplotlib 3.10+ is required by figure_style.py.
+numpy>=2.0
+pandas>=2.0
+matplotlib>=3.10
+pytest>=8.0
+jupyter>=1.0
