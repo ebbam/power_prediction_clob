@@ -17,10 +17,9 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 
 import figure_style as style
-from bettor import bettor
+from bettor import Bettor
 
 style.apply()
 
@@ -103,7 +102,7 @@ def plot_reservation(ax):
     """
     positions = np.linspace(-BUDGET * 0.9, BUDGET * 0.9, 181)
     for color, r in zip(COLORS, RISK_AVERSIONS):
-        prices = np.array([bettor(budget=BUDGET - VALUATION * q, market_valuation=VALUATION,
+        prices = np.array([Bettor(budget=BUDGET - VALUATION * q, market_valuation=VALUATION,
                                   risk_av=r, n_contracts=q).reservation_price()
                            for q in positions])
         ax.plot(positions, prices, color=color)

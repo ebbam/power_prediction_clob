@@ -1,7 +1,7 @@
 import sys, os, json
 sys.path.insert(0, os.path.expanduser("~/mnt/power_prediction_clob"))
 import numpy as np
-from bettor import bettor, run_market_lob
+from bettor import Bettor, run_market_lob
 D, eta, W, N = 0.2, 0.5, 0.7, 100
 def first_passage(err, tol=0.02, window=3):
     ok = np.abs(err) <= tol
@@ -10,14 +10,14 @@ def first_passage(err, tol=0.02, window=3):
     return np.nan
 def shock_run(rho, s, h, shock=-0.15, seed=5):
     g = np.random.default_rng(seed); np.random.seed(seed); rng = np.random.default_rng(seed)
-    pop = [bettor(budget=g.uniform(100, 1000), market_valuation=eta, risk_av=1.0, stubbornness=s, expertise=1.0, market_imitation=h) for _ in range(N)]
+    pop = [Bettor(budget=g.uniform(100, 1000), market_valuation=eta, risk_av=1.0, stubbornness=s, expertise=1.0, market_imitation=h) for _ in range(N)]
     if rho > 0:
-        B = sum(b.budget for b in pop); pop.append(bettor(budget=B*rho/(1-rho), market_valuation=W, risk_av=1.0, whale=True))
-    r1 = run_market_lob(len(pop), 60, eta, 0.0, pop, gen_el=np.full(60, eta), rng=rng)
+        B = sum(b.budget for b in pop); pop.append(Bettor(budget=B*rho/(1-rho), market_valuation=W, risk_av=1.0, whale=True))
+    r1 = run_market_lob(pop, 60, np.full(60, eta), eta, rng=rng)
     m_settled = r1["price_history"][-1]
     for b in pop:
         if not b.whale: b.market_valuation += shock
-    r2 = run_market_lob(len(pop), 60, m_settled, 0.0, pop, gen_el=np.full(60, eta), rng=rng)
+    r2 = run_market_lob(pop, 60, np.full(60, eta), m_settled, rng=rng)
     m = np.array(r2["price_history"][1:])
     Pi = rho*((1-h)*(1-s)+h)/((1-h)*(1-s)+h*rho) if rho > 0 else 0.0
     dstar = m_settled - eta                      # simulated steady state before the shock

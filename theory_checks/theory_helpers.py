@@ -1,7 +1,7 @@
 """
 Helpers for theory_assumptions.ipynb.
 
-Builds agent populations, runs the order-book market (bettor.run_market_lob),
+Builds agent populations, runs the order-book market (Bettor.run_market_lob),
 records agent states, and implements the theoretical formulas of Section 3.2 and
 Supplementary Section 8 of the manuscript. Experiment functions live here (not in
 the notebook) so they can run in parallel worker processes.
@@ -14,8 +14,8 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(HERE))          # repository root, for bettor.py
-from bettor import bettor, run_market_lob          # noqa: E402
+sys.path.insert(0, os.path.dirname(HERE))          # repository root, for Bettor.py
+from bettor import Bettor, run_market_lob          # noqa: E402
 
 N_AGENTS = 100      # non-whale agents
 ETA = 0.5           # true outcome when held fixed
@@ -41,14 +41,14 @@ def make_population(seed, n=N_AGENTS, r=1.0, s=0.3, h=0.0, noise=0.0, valuation=
     budgets = rng.uniform(100, 1000, n)
     risk = r(rng, n) if callable(r) else np.full(n, r)
     values = valuation(rng, n) if callable(valuation) else np.full(n, valuation)
-    return [bettor(budget=b, market_valuation=v, risk_av=ri, stubbornness=s, expertise=1 - noise, market_imitation=h)
+    return [Bettor(budget=b, market_valuation=v, risk_av=ri, stubbornness=s, expertise=1 - noise, market_imitation=h)
             for b, v, ri in zip(budgets, values, risk)]
 
 
 def manuscript_population(seed, n=N_AGENTS, h=0.0):
     """Table 1 defaults: B~U(100,1000), V~N(0.5,0.05), s~N(0.3,0.05), e~N(0.9,0.04), r~U(0,1)."""
     rng = np.random.default_rng(seed)
-    return [bettor(budget=rng.uniform(100, 1000),
+    return [Bettor(budget=rng.uniform(100, 1000),
                    market_valuation=np.clip(rng.normal(0.5, 0.05), 0, 1),
                    risk_av=rng.uniform(0, 1),
                    stubbornness=np.clip(rng.normal(0.3, 0.05), 0, 1),
@@ -60,7 +60,7 @@ def manuscript_population(seed, n=N_AGENTS, h=0.0):
 def add_whale(population, rho, valuation=W, r=1.0):
     """Return population plus a whale holding a share rho of total budget."""
     non_whale_budget = sum(b.budget for b in population)
-    whale = bettor(budget=non_whale_budget * rho / (1 - rho), market_valuation=valuation, risk_av=r, whale=True)
+    whale = Bettor(budget=non_whale_budget * rho / (1 - rho), market_valuation=valuation, risk_av=r, whale=True)
     return population + [whale]
 
 
@@ -75,16 +75,16 @@ def simulate(population, periods, rng, eta_path=None, initial_price=ETA, record=
     """
     eta_path = np.full(periods, ETA) if eta_path is None else np.asarray(eta_path[:periods])
     records = []
-    original_update = bettor.update_belief
+    original_update = Bettor.update_belief
     if record:
         def recording_update(self, *args, **kwargs):
             records.append((self.reservation_price(), self.market_valuation, self.budget, self.n_contracts))
             return original_update(self, *args, **kwargs)
-        bettor.update_belief = recording_update
+        Bettor.update_belief = recording_update
     try:
-        result = run_market_lob(len(population), periods, initial_price, 0.0, population, gen_el=eta_path, rng=rng)
+        result = run_market_lob(population, periods, eta_path, initial_price, rng=rng)
     finally:
-        bettor.update_belief = original_update
+        Bettor.update_belief = original_update
     price = np.array(result["price_history"][1:])
     out = {"price": price, "midquote": np.asarray(result["midquote"]), "eta": eta_path,
            "error": price - eta_path, "spread": np.asarray(result["spread"])}

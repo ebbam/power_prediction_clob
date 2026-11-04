@@ -1,10 +1,9 @@
 """Whale experiment: risk aversion drawn as before vs every agent at r = 1 (log utility).
 
 Row 1 uses the saved whale runs (ordinary agents r ~ U(0, 1), whale r = 0.5). Row 2 reruns the
-same seeds, populations and fundamental paths with every agent, whale included, at r = 1; the
-whale's r is set inside run_market_lob, so it is overridden here through the bettor class
-rather than by editing bettor.py. The r = 1 runs (~4 min) are cached in
-sim_output/whale_log_utility_runs.csv; pass --rerun to redo them.
+same seeds, populations and fundamental paths with every agent, whale included, at r = 1.
+The r = 1 runs (~4 min) are cached in sim_output/whale_log_utility_runs.csv; pass --rerun to
+redo them.
 """
 
 import sys
@@ -14,7 +13,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-import bettor as bettor_module
 import experiments.whale_convergence_experiment as experiment
 from metrics import (
     calibrate_band,
@@ -39,38 +37,18 @@ ROWS = ("Risk aversion as before: agents r ~ U(0, 1), whale r = 0.5",
         "All agents, whale included, r = 1")
 
 
-class LogUtilityBettor(bettor_module.bettor):
-    def __init__(self, *args, **kwargs):
-        kwargs["risk_av"] = 1.0
-        super().__init__(*args, **kwargs)
-
-
 def run_log_utility():
-    original = bettor_module.bettor
-    # run_market_lob builds the whale, and make_population the agents, from these names.
-    bettor_module.bettor = experiment.bettor = LogUtilityBettor
-    try:
-        smoothed, paths = {}, {}
-        for share in experiment.WHALE_SHARES:
-            print(f"r = 1, ρ = {share:g}")
-            for run in range(experiment.N_RUNS):
-                seed = experiment.BASE_SEED + run
-                path = experiment.make_election_path(seed)
-                record = bettor_module.run_market_lob(
-                    experiment.N_BETTORS, experiment.SIMULATION_HORIZON,
-                    experiment.INITIAL_PRICE, experiment.OUTCOME_UNCERTAINTY,
-                    experiment.make_population(seed, share),
-                    market_error=experiment.MARKET_ERROR, tick=experiment.TICK,
-                    ttl=experiment.TTL, max_markup=experiment.MAX_MARKUP,
-                    rng=np.random.default_rng(seed), gen_el=path, whale_share=share,
-                    whale_start=experiment.PRE_PERIOD,
-                    whale_valuation=experiment.WHALE_VALUATION,
-                )
-                prices = np.asarray(record["midquote"], dtype=float)
-                paths[share, run] = (prices, path[:experiment.SIMULATION_HORIZON])
-                smoothed[share, run] = smoothed_absolute_error(*paths[share, run])
-    finally:
-        bettor_module.bettor = experiment.bettor = original
+    smoothed, paths = {}, {}
+    for share in experiment.WHALE_SHARES:
+        print(f"r = 1, ρ = {share:g}")
+        for run in range(experiment.N_RUNS):
+            seed = experiment.BASE_SEED + run
+            population = experiment.make_population(seed, share, risk_av=1.0)
+            record, path, _ = experiment.run_whale_market(seed, share, population,
+                                                          whale_risk_av=1.0)
+            prices = np.asarray(record["midquote"], dtype=float)
+            paths[share, run] = (prices, path[:experiment.SIMULATION_HORIZON])
+            smoothed[share, run] = smoothed_absolute_error(*paths[share, run])
 
     band = calibrate_band(np.concatenate(
         [error[:experiment.PRE_PERIOD] for (share, _), error in smoothed.items() if share == 0]))

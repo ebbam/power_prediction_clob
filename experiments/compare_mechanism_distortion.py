@@ -10,7 +10,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from bettor import bettor, run_market_fixed_el, run_market_lob
+from bettor import add_whale, fundamental_path, run_market_lob
+from experiments.whale_convergence_experiment import make_population
 from metrics import (
     calibrate_band,
     distortion_metrics,
@@ -19,10 +20,10 @@ from metrics import (
     smoothed_absolute_error,
     summarize_distortion,
 )
+from walrasian import run_walrasian_market
 
 
 N_RUNS = 30
-N_BETTORS = 100
 HORIZON = 300
 SHOCK_TIME = 0
 WHALE_SHARE = 0.5
@@ -38,41 +39,25 @@ SIM_DIR.mkdir(exist_ok=True)
 
 
 def election_path(seed):
-    rng = np.random.default_rng(seed)
-    path = [INITIAL_PRICE]
-    for _ in range(HORIZON):
-        path.append(np.clip(path[-1] + rng.normal(0, OUTCOME_UNCERTAINTY), 0, 1))
-    return np.asarray(path)
+    return fundamental_path(INITIAL_PRICE, HORIZON, OUTCOME_UNCERTAINTY,
+                            np.random.default_rng(seed))
 
 
 def population(seed, whale_share):
-    """Non-whale capital scaled so the whale holds `whale_share` of the total."""
-    rng = np.random.default_rng(seed)
-    np.random.seed(seed)
-    return [
-        bettor(budget=rng.uniform(100, 1000) * (1 - whale_share),
-               market_valuation=np.clip(rng.normal(0.50, 0.05), 0.01, 0.99))
-        for _ in range(N_BETTORS)
-    ]
+    """The whale experiment's bettors, joined from the start by a whale holding whale_share."""
+    bettors = make_population(seed, whale_share)
+    add_whale(bettors, whale_share, WHALE_VALUATION)
+    return bettors
 
 
 def run_walrasian(seed, path, whale_share):
-    bettors = population(seed, whale_share)
-    if whale_share > 0:
-        capital = sum(b.budget for b in bettors)
-        bettors.append(bettor(budget=capital * whale_share / (1 - whale_share),
-                              market_valuation=WHALE_VALUATION, risk_av=0.5, whale=True))
-    # n_bettors must cover the whale, or its fills are never booked.
-    record = run_market_fixed_el(len(bettors), HORIZON, INITIAL_PRICE, OUTCOME_UNCERTAINTY,
-                                 bettors, path)
+    record = run_walrasian_market(population(seed, whale_share), HORIZON, path, INITIAL_PRICE)
     return np.asarray(record["price_history"][:HORIZON], dtype=float)
 
 
 def run_clob(seed, path, whale_share):
-    record = run_market_lob(N_BETTORS, HORIZON, INITIAL_PRICE, OUTCOME_UNCERTAINTY,
-                            population(seed, whale_share), gen_el=path,
-                            rng=np.random.default_rng(seed), whale_share=whale_share,
-                            whale_start=SHOCK_TIME, whale_valuation=WHALE_VALUATION)
+    record = run_market_lob(population(seed, whale_share), HORIZON, path, INITIAL_PRICE,
+                            rng=np.random.default_rng(seed))
     return np.asarray(record["midquote"], dtype=float)
 
 
