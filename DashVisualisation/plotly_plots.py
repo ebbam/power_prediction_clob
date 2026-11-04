@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 # Market record conventions (run_market_lob): per-period series have one value for each
 # period t = 0, ..., T-1. 'price_history' and 'beliefs' have an extra initial value, so the
 # market price after trading in period t is price_history[t + 1], the beliefs agents traded on
-# in period t are beliefs[t], and the true outcome they learn about after period t is gen_el[t].
+# in period t are beliefs[t], and the true outcome they learn about after period t is fundamental[t].
 
 
 def _periods(rec):
@@ -14,7 +14,7 @@ def _periods(rec):
 def market_error(rec):
     """Market price after each period minus the true outcome in that period."""
     T = len(rec["best_bid"])
-    return np.array(rec["price_history"][1:T + 1]) - np.array(rec["gen_el"][:T])
+    return np.array(rec["price_history"][1:T + 1]) - np.array(rec["fundamental"][:T])
 
 
 def bid_ask_band(best_bid, best_ask):
@@ -53,7 +53,7 @@ def plot_market_price(rec, whale_valuation=None, whale_start=None):
                              fillcolor="rgba(42,120,214,0.25)", hoverinfo="skip", name="Best bid to best ask"))
     fig.add_trace(go.Scatter(x=t, y=rec["price_history"][1:T + 1], mode="lines",
                              line=dict(color="black", width=2.5, shape="hv"), name="Market price"))
-    fig.add_trace(go.Scatter(x=t, y=rec["gen_el"][:T], mode="lines",
+    fig.add_trace(go.Scatter(x=t, y=rec["fundamental"][:T], mode="lines",
                              line=dict(color="#e34948", width=1.5, shape="hv"), name="Election outcome"))
     fig.add_trace(go.Scatter(x=t, y=rec["beliefs"][:T], mode="lines",
                              line=dict(color="#6250d6", dash="dot", width=1.5, shape="hv"), name="Mean valuation"))

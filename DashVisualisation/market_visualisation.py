@@ -12,7 +12,7 @@ import plotly.express as px
 from dash import dcc, html
 from dash.dependencies import Input, Output
 
-from market_functions import bettor, run_market_lob
+from bettor import Bettor, add_whale, fundamental_path, run_market_lob   # copy of ../bettor.py
 from plotly_plots import joint_plot, plot_hist, plot_market_error, plot_market_price, plot_trading_activity
 from processing_data import sample_parameters
 
@@ -135,7 +135,7 @@ def update_plots(var_1, var_2, correlation, budget_mean, budget_sd, risk_av_mean
     var_1_ind, var_2_ind = variables_of_interest.index(var_1), variables_of_interest.index(var_2)
     sampled = sample_parameters(var_1_ind, var_2_ind, means, sds, np.clip(correlation or 0, -1, 1), n_bettors)
 
-    bettors = [bettor(budget=max(sampled[i, 0], 1.0),
+    bettors = [Bettor(budget=max(sampled[i, 0], 1.0),
                       market_valuation=np.clip(np.random.normal(initial_price, 0.05), 0, 1),
                       risk_av=np.clip(sampled[i, 1], 0, 1),
                       stubbornness=np.clip(sampled[i, 2], 0, 1),
@@ -146,7 +146,7 @@ def update_plots(var_1, var_2, correlation, budget_mean, budget_sd, risk_av_mean
     bettor_data = {"budget": [b.budget for b in bettors],
                    "risk_av": [b.risk_av for b in bettors],
                    "stubbornness": [b.stubbornness for b in bettors],
-                   "expertise": [1 - b.expertise for b in bettors]}   # bettor stores 1 - expertise (signal s.d.)
+                   "expertise": [b.expertise for b in bettors]}
 
     names = dict(zip(variables_of_interest, nice_names))
     other_var = [v for v in variables_of_interest if v not in (var_1, var_2)]
@@ -157,9 +157,10 @@ def update_plots(var_1, var_2, correlation, budget_mean, budget_sd, risk_av_mean
                            names[var_1], names[var_2], float(np.clip(correlation or 0, -1, 1)))
 
     whale_start = int(np.clip(whale_start or 0, 0, t_election - 1))
-    market_record = run_market_lob(n_bettors, t_election, initial_price, outcome_uncertainty, bettors, rng=rng,
-                                   max_markup=max_markup, ttl=ttl, whale_share=whale_share,
-                                   whale_start=whale_start, whale_valuation=whale_valuation)
+    fundamentals = fundamental_path(initial_price, t_election, outcome_uncertainty)
+    add_whale(bettors, whale_share, whale_valuation, entry_time=whale_start)
+    market_record = run_market_lob(bettors, t_election, fundamentals, initial_price, rng=rng,
+                                   max_markup=max_markup, ttl=ttl)
 
     has_whale = whale_share > 0
     fig_market_price = plot_market_price(market_record, whale_valuation if has_whale else None,

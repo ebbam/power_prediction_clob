@@ -12,7 +12,7 @@ it paid. Money is in simulation units; a contract pays 1 if the event happens.
 """
 import numpy as np
 
-from market_functions import bettor, run_market_lob
+from bettor import Bettor, run_market_lob   # copy of ../bettor.py
 
 N_BETTORS = 100
 ETA = 0.5
@@ -20,7 +20,7 @@ BASELINE, WHALE_PERIODS = 20, 80
 STEADY_WINDOW = 30
 
 
-class LimitedBettor(bettor):
+class LimitedBettor(Bettor):
     """An ordinary bettor whose holdings must stay within +/- position_limit contracts."""
 
     def __init__(self, position_limit=None, **kwargs):
@@ -38,7 +38,7 @@ class LimitedBettor(bettor):
         return c_range[np.argmax(self.exp_utility(m, c_range))]
 
 
-class BuyAndHoldWhale(bettor):
+class BuyAndHoldWhale(Bettor):
     """
     Each period, bids (or offers) for the rest of its target position at limit price W, then holds.
     Its cash covers the full position at W, so every order is fully collateralised.
@@ -50,7 +50,6 @@ class BuyAndHoldWhale(bettor):
         cost_per_contract = valuation if self.direction > 0 else 1 - valuation
         super().__init__(budget=self.target * cost_per_contract + 1.0, market_valuation=valuation,
                          risk_av=1.0, stubbornness=1.0, expertise=1.0, whale=True)
-        self.initial_budget = self.budget
         self.position_history = []
 
     def limit_order(self, ref_price, ob, rng, max_markup=0.05):
@@ -78,11 +77,11 @@ def run_once(seed, target, whale_valuation, position_limit):
                              expertise=np.clip(rng.normal(0.95, 0.02), 0.8, 1))
                for _ in range(N_BETTORS)]
     others_wealth = sum(b.budget for b in bettors)
-    baseline = run_market_lob(N_BETTORS, BASELINE, ETA, 0.0, bettors, gen_el=np.full(BASELINE, ETA), rng=rng)
+    baseline = run_market_lob(bettors, BASELINE, np.full(BASELINE, ETA), ETA, rng=rng)
     whale = BuyAndHoldWhale(target, whale_valuation, position_limit)
     start_price = baseline["price_history"][-1]
-    with_whale = run_market_lob(N_BETTORS + 1, WHALE_PERIODS, start_price, 0.0, bettors + [whale],
-                                gen_el=np.full(WHALE_PERIODS, ETA), rng=rng)
+    with_whale = run_market_lob(bettors + [whale], WHALE_PERIODS, np.full(WHALE_PERIODS, ETA),
+                                start_price, rng=rng)
     held = abs(whale.n_contracts)
     paid = abs(whale.initial_budget - whale.budget)
     return {"error": np.concatenate([baseline["price_history"][1:], with_whale["price_history"][1:]]) - ETA,
