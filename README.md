@@ -82,3 +82,8 @@ record = run_market_lob(population, 100, path, initial_price=0.5,
 ## DashVisualisation/
 
 <!-- To be completed. -->
+
+The apps are deployed from this folder alone, so it holds its own copies of `bettor.py` and
+`orderbook.py`. After changing either file in the repository root, copy it here again;
+`tests/test_dash_copies.py` fails until the copies match. Run an app from inside the folder,
+e.g. `cd DashVisualisation && python3 market_visualisation.py`.
