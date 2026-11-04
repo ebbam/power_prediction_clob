@@ -22,6 +22,13 @@ Figure 3 (herding), one row per herding strength h (Bettor.market_imitation)
        with the CLOB theory's assumptions (whale at 0.7, log utility for everyone).
     D-E  The co-author's CLOB theory checks (theory_checks/figdata_AB.json).
 
+Figure 4 (a whale against herding bettors, compared with the CLOB theory)
+    A  Steady-state price error against the whale's initial capital share, by herding strength:
+       theory (lines) and simulation (points with 95% intervals), stubbornness 0.1.
+    B  Maximum price error by herding strength and stubbornness, ρ = 0.3.
+    Everyone has log utility, the true outcome is fixed at 0.5, signals are exact and the
+    whale (valuation 0.7) trades from period 0; 200 runs per condition.
+
 Supplementary: trader_wealth_by_risk_aversion (Figure 2D's layout by risk aversion).
 The simulations run on N_WORKERS = 4 processes.
 
@@ -109,12 +116,28 @@ THEORY_CHECKS_DIR = OUTPUT_DIR / "theory_checks"
 THEORY_DELTA = 0.2            # whale valuation 0.7 minus true outcome 0.5 in those checks
 THEORY_STUBBORNNESS = 0.3
 
+# Figure 4: whale against herding bettors, compared with the theory.
+WHALE_HERDING_CSV = SIM_DIR / "figure4_whale_herding.csv"
+WHALE_HERDING_ETA = 0.5                    # fixed true outcome, and the opening price
+WHALE_HERDING_VALUATION = 0.7
+WHALE_HERDING_PERIODS = 100
+WHALE_HERDING_TAIL = 50                    # steady state: mean error over the last 50 periods
+WHALE_HERDING_RUNS = 200                   # per condition, seeds WHALE_HERDING_SEED + run
+WHALE_HERDING_SEED = 10_000
+WHALE_HERDING_SHARES = np.arange(0.1, 0.91, 0.1)        # panel A
+WHALE_HERDING_H = np.linspace(0, 0.9, 10)               # panels A and B
+WHALE_HERDING_S = np.linspace(0, 0.9, 10)               # panel B
+WHALE_HERDING_FIXED_S = 0.1                             # panel A
+WHALE_HERDING_FIXED_RHO = 0.3                           # panel B
+
 # Colours by role, as names in figure_style.PALETTE (looked up when a figure is drawn).
 COLORS = {
     "whale_share": ("navy", "green", "orange", "ruby"),       # Figure 2 A-C, by ρ
     "herding": ("teal", "ruby", "crimson", "steel", "violet"),  # Figure 3 A-C, by h
     "whale_valuation": ("steel", "green", "orange"),          # Figure 2E, by valuation
     "rho_ramp": ("lavender", "navy"),                         # Figure 2D, ρ from low to high
+    "herding_ramp": ("teal", "amber", "ruby"),                # Figure 4A, h from low to high
+    "max_error_ramp": ("indigo", "teal", "amber"),            # Figure 4B, error low to high
     "theory": ("navy", "orange"),                             # Figure 3 D-E
     "price_up": "tangerine", "price_down": "sky",             # Figure 1A market pressure
     "outcome": "crimson", "mean_valuation": "lilac",          # Figure 1A
@@ -126,6 +149,11 @@ COLORS = {
 def role_color(role):
     """The colour, or list of colours, for a role in COLORS."""
     return style.color(COLORS[role])
+
+
+def role_ramp(role):
+    """A continuous colour map through the palette colours of a *_ramp role, in order."""
+    return LinearSegmentedColormap.from_list(role, role_color(role))
 
 
 def _budget_population(variance):
@@ -578,6 +606,10 @@ def load_herding(rerun=False, theory=False):
                   rerun, needs="normalised_pull")
 
 
+def load_whale_herding(rerun=False):
+    return cached(WHALE_HERDING_CSV, run_whale_herding, rerun)
+
+
 def load_profit_experiment(rerun=False):
     """(runs, traders) frames of the profit experiment."""
     if (PROFIT_DIR / "traders.csv.gz").exists() and not rerun:
@@ -625,20 +657,15 @@ def plot_trader_returns(traders, ax, column="expertise", groups=None, xlabel="Tr
     style_axis(ax)
 
 
-def profit_ramp():
-    """Sequential colour ramp for ordered ρ levels, between two project-palette colours."""
-    return LinearSegmentedColormap.from_list("rho", role_color("rho_ramp"))
-
-
 def profit_colors(n):
-    return [profit_ramp()(i / max(n - 1, 1)) for i in range(n)]
+    return [role_ramp("rho_ramp")(i / max(n - 1, 1)) for i in range(n)]
 
 
 def rho_colorbar(figure_or_subfigure, ax, shares, label="ρ (Whale Capital Share)"):
     """A continuous ρ colour bar under `ax`, in place of a legend of discrete swatches."""
     if ax.get_legend() is not None:
         ax.get_legend().remove()
-    mappable = ScalarMappable(norm=Normalize(min(shares), max(shares)), cmap=profit_ramp())
+    mappable = ScalarMappable(norm=Normalize(min(shares), max(shares)), cmap=role_ramp("rho_ramp"))
     bar = figure_or_subfigure.colorbar(mappable, ax=ax, location="bottom", fraction=0.05,
                                        pad=0.02, aspect=40)
     bar.set_label(label)
@@ -736,3 +763,81 @@ def plot_theory_herding(ax, b):
            title=f"Herding Amplifies the Whale (s = {THEORY_STUBBORNNESS:g})")
     ax.legend(loc="upper left", frameon=False)
     style_axis(ax)
+
+
+def whale_herding_run(share, h, s, seed):
+    """One Figure 4 market. Returns the steady-state error (mean price - outcome over the last
+    WHALE_HERDING_TAIL periods), the maximum |price - outcome| and the share of periods with a
+    two-sided book. The price is the end-of-period reference price."""
+    np.random.seed(seed)
+    population = _uniform_population(budget=DESIGN_BUDGET, market_valuation=WHALE_HERDING_ETA,
+                                     risk_av=1.0, stubbornness=s, expertise=1.0,
+                                     market_imitation=h)
+    add_whale(population, share, WHALE_HERDING_VALUATION, risk_av=1.0)
+    record = run_market_lob(population, WHALE_HERDING_PERIODS,
+                            np.full(WHALE_HERDING_PERIODS, WHALE_HERDING_ETA), WHALE_HERDING_ETA,
+                            rng=np.random.default_rng(seed))
+    error = np.asarray(record["price_history"][1:], dtype=float) - WHALE_HERDING_ETA
+    return (np.mean(error[-WHALE_HERDING_TAIL:]), np.max(np.abs(error)),
+            np.mean(np.isfinite(record["midquote"])))
+
+
+def whale_herding_condition(panel, share, h, s):
+    """Mean statistics, and the steady-state error's standard error, over the runs."""
+    steady, maximum, coverage = np.array(
+        [whale_herding_run(share, h, s, WHALE_HERDING_SEED + run)
+         for run in range(WHALE_HERDING_RUNS)]).T
+    return {"panel": panel, "rho": share, "h": h, "s": s,
+            "steady_error": np.mean(steady),
+            "steady_se": np.std(steady, ddof=1) / np.sqrt(WHALE_HERDING_RUNS),
+            "max_error": np.mean(maximum), "midquote_coverage": np.mean(coverage)}
+
+
+def run_whale_herding():
+    """Panel A: ρ x h at s = WHALE_HERDING_FIXED_S; panel B: h x s at ρ = WHALE_HERDING_FIXED_RHO."""
+    tasks = ([("A", share, h, WHALE_HERDING_FIXED_S)
+              for h in WHALE_HERDING_H for share in WHALE_HERDING_SHARES]
+             + [("B", WHALE_HERDING_FIXED_RHO, h, s)
+                for s in WHALE_HERDING_S for h in WHALE_HERDING_H])
+    print(f"Whale and herding experiment: {len(tasks)} conditions x {WHALE_HERDING_RUNS} runs "
+          f"on {N_WORKERS} processes")
+    results = pd.DataFrame(parallel_map(whale_herding_condition, *zip(*tasks)))
+    results.to_csv(WHALE_HERDING_CSV, index=False)
+    return results
+
+
+def herding_level_colors():
+    """One colour per value in WHALE_HERDING_H, along the herding ramp."""
+    return role_ramp("herding_ramp")(np.linspace(0, 1, len(WHALE_HERDING_H)))
+
+
+def plot_steady_state_distortion(results, ax):
+    """Figure 4A: theory (lines; WHALE_HERDING_VALUATION - outcome times theory_pull) and
+    simulated means with 95% intervals (points), one colour per herding strength."""
+    delta = WHALE_HERDING_VALUATION - WHALE_HERDING_ETA
+    shares = np.linspace(0.01, 0.65, 300)
+    panel = results[results["panel"] == "A"]
+    for h, color in zip(WHALE_HERDING_H, herding_level_colors()):
+        ax.plot(shares, delta * theory_pull(h, shares, WHALE_HERDING_FIXED_S), color=color,
+                linewidth=1.5, alpha=0.6, label=fr"$h = {h:g}$")
+        runs = panel[np.isclose(panel["h"], h)].sort_values("rho")
+        ax.errorbar(runs["rho"], runs["steady_error"], yerr=1.96 * runs["steady_se"], fmt="o",
+                    color=color, capsize=2, markersize=3, linestyle="none")
+    ax.set(xlim=(0, 0.65), ylim=(0, 0.22), title="Steady-State Distortion",
+           xlabel=r"Initial Whale Capital Share ($\rho_0$)",
+           ylabel=r"Steady-State Price Error ($p_S - \eta$)")
+
+
+def plot_max_error_map(results, ax, figure):
+    """Figure 4B: mean maximum |price - outcome| for each herding strength and stubbornness."""
+    grid = results[results["panel"] == "B"].pivot(index="s", columns="h", values="max_error")
+    half_h = np.diff(WHALE_HERDING_H)[0] / 2       # cells centred on the simulated values
+    half_s = np.diff(WHALE_HERDING_S)[0] / 2
+    image = ax.imshow(grid.to_numpy(), origin="lower", aspect="auto",
+                      cmap=role_ramp("max_error_ramp"),
+                      extent=[WHALE_HERDING_H[0] - half_h, WHALE_HERDING_H[-1] + half_h,
+                              WHALE_HERDING_S[0] - half_s, WHALE_HERDING_S[-1] + half_s])
+    ax.set_xticks(WHALE_HERDING_H[::3])
+    ax.set(title="Maximum Market Error", xlabel=r"Herding Strength ($h$)",
+           ylabel=r"Stubbornness ($s$)")
+    figure.colorbar(image, ax=ax, label=r"Maximum $|p_t - \eta|$")

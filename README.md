@@ -32,15 +32,16 @@ Figures are saved to `figures/` as PDF and PNG:
 | Figure 1 | `figure1_clob` |
 | Figure 2 | `figure2`, `figure2e` |
 | Figure 3 (panels A–C; panels D–E use `theory_checks/figdata_AB.json`) | `figure3b`, `figure3b_theory` |
-| Figure 4 (stylised mechanisms) | `stylised_mechanisms_clob` |
+| Figure 4 (whale against herding bettors) | `figure4_whale_herding` |
+| Stylised mechanisms | `stylised_mechanisms_clob` |
 
 ### Files needed
 
 | File | Role |
 |---|---|
 | `manuscript_figures.ipynb` | Builds and saves every manuscript figure |
-| `paper_figures.py` | Simulations for Figures 1–3 (cached in `sim_output/`) and their panel functions |
-| `stylised_mechanisms.py` | Panel functions for Figure 4 |
+| `paper_figures.py` | Simulations for Figures 1–4 (cached in `sim_output/`) and their panel functions |
+| `stylised_mechanisms.py` | Panel functions for the stylised mechanisms figure |
 | `bettor.py` | The model: agents (`Bettor`, `add_whale`), fundamental paths and the market (`run_market_lob`) |
 | `orderbook.py` | The order book used by `run_market_lob` |
 | `walrasian.py` | The original market mechanism, kept for comparison with the CLOB |
