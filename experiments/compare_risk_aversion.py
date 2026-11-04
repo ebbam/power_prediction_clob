@@ -23,7 +23,7 @@ from metrics import (
     plot_time_outside_band,
     smoothed_absolute_error,
 )
-from paper_figures import WHALE_SHARE_COLORS
+import paper_figures
 from experiments.whale_convergence_experiment import RHO, whale_metrics
 
 
@@ -73,7 +73,7 @@ def main():
     for row, (label, metrics) in enumerate(zip(ROWS, (current, log_utility))):
         for ax, plot in zip(axes[row], (plot_max_error, plot_normalised_pull,
                                         plot_time_outside_band)):
-            plot(metrics, RHO, ax, palette=WHALE_SHARE_COLORS)
+            plot(metrics, RHO, ax, palette=paper_figures.role_color("whale_share"))
             ax.set_title(f"{label}\n{ax.get_title()}", fontsize=10)
     for column in range(3):
         left = min(ax.get_xlim()[0] for ax in axes[:, column])

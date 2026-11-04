@@ -1,4 +1,5 @@
-"""Stylised figure of how the bettor parameters shape an agent's decisions.
+"""Panels of the stylised mechanisms figure (Figure 4; assembled in manuscript_figures.ipynb):
+how the bettor parameters shape an agent's decisions.
 
     A  Risk aversion, for a bettor whose internal valuation is V_i = 0.5:
        top, the order it submits at each limit price in the CLOB's window around its
@@ -13,8 +14,6 @@ Rebuilt from mechanism_experiment_plots.ipynb (power_prediction repo, scratch_pl
 commit 06b6404), with the combined layout of the published figure.
 """
 
-from pathlib import Path
-
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -23,16 +22,18 @@ from bettor import Bettor
 
 style.apply()
 
+# Colours by role, as names in figure_style.PALETTE (looked up when a figure is drawn).
+COLORS = {
+    "levels": ("lavender", "navy", "green", "orange", "ruby"),   # one per parameter value
+    "bias": ("royal", "aqua", "slate"),
+    "buy": "gold", "sell": "plum", "buy_label": "burnt", "sell_label": "deep_plum",
+}
 
-OUTPUT_DIR = Path(__file__).resolve().parent
-FIGURES_DIR = OUTPUT_DIR / "figures"
-FIGURES_DIR.mkdir(exist_ok=True)
 
-# Line colours, in the order of the original notebook's palette.
-COLORS = ["#CC99FF", "#000080", "#339966", "#F4A261", "#B22222"]
-BIAS_COLORS = ["royalblue", "lightseagreen", "slateblue"]
-SELL_COLOR, BUY_COLOR = "#8E3B8E", "#FFA500"
-SELL_LABEL_COLOR, BUY_LABEL_COLOR = "#5B1F7A", "#C45A00"
+def role_color(role):
+    """The colour, or list of colours, for a role in COLORS."""
+    return style.color(COLORS[role])
+
 
 RISK_AVERSIONS = [0.1, 0.25, 0.5, 0.75, 0.9]
 STUBBORNNESS = [0.1, 0.25, 0.5, 0.75, 0.9]
@@ -75,17 +76,17 @@ def plot_order_size(ax):
     prices = np.linspace(VALUATION - MAX_MARKUP, VALUATION + MAX_MARKUP, 201)
     # Only two quadrants occur: buy orders below V_i and sell orders above it.
     top = BUDGET * 1.05
-    ax.fill_between([VALUATION - MAX_MARKUP, VALUATION], 0, top, color=BUY_COLOR, alpha=0.2,
+    ax.fill_between([VALUATION - MAX_MARKUP, VALUATION], 0, top, color=role_color("buy"), alpha=0.2,
                     linewidth=0)
-    ax.fill_between([VALUATION, VALUATION + MAX_MARKUP], -top, 0, color=SELL_COLOR, alpha=0.25,
+    ax.fill_between([VALUATION, VALUATION + MAX_MARKUP], -top, 0, color=role_color("sell"), alpha=0.25,
                     linewidth=0)
-    for color, r in zip(COLORS, RISK_AVERSIONS):
+    for color, r in zip(role_color("levels"), RISK_AVERSIONS):
         ax.plot(prices, optimal_order(prices, VALUATION, r, BUDGET), color=color, label=f"{r}")
     ax.axhline(0, color="gray", linewidth=0.8)
     ax.axvline(VALUATION, color="gray", linestyle="--")
-    ax.text(VALUATION - MAX_MARKUP * 0.1, BUDGET * 0.95, "Buy", color=BUY_LABEL_COLOR,
+    ax.text(VALUATION - MAX_MARKUP * 0.1, BUDGET * 0.95, "Buy", color=role_color("buy_label"),
             ha="right", va="top")
-    ax.text(VALUATION + MAX_MARKUP * 0.1, -BUDGET * 0.95, "Sell", color=SELL_LABEL_COLOR,
+    ax.text(VALUATION + MAX_MARKUP * 0.1, -BUDGET * 0.95, "Sell", color=role_color("sell_label"),
             ha="left", va="bottom")
     ax.text(VALUATION - 0.001, -BUDGET * 0.5, r"$V_i$", ha="right", va="center")
     ax.set(xlim=(VALUATION - MAX_MARKUP, VALUATION + MAX_MARKUP),
@@ -101,7 +102,7 @@ def plot_reservation(ax):
     above it.
     """
     positions = np.linspace(-BUDGET * 0.9, BUDGET * 0.9, 181)
-    for color, r in zip(COLORS, RISK_AVERSIONS):
+    for color, r in zip(role_color("levels"), RISK_AVERSIONS):
         prices = np.array([Bettor(budget=BUDGET - VALUATION * q, market_valuation=VALUATION,
                                   risk_av=r, n_contracts=q).reservation_price()
                            for q in positions])
@@ -118,7 +119,7 @@ def plot_stubbornness(ax, rng):
     signals = rng.normal(TRUE_VALUE, 1 - SIGNAL_EXPERTISE, N_STEPS)
     ax.plot(range(1, N_STEPS + 1), np.clip(signals, 0, 1), color="gray", alpha=0.6,
             linewidth=2)
-    for color, s in zip(COLORS, STUBBORNNESS):
+    for color, s in zip(role_color("levels"), STUBBORNNESS):
         beliefs = [INITIAL_BELIEF]
         for signal in signals:
             beliefs.append(np.clip(s * beliefs[-1] + (1 - s) * signal, 0, 1))
@@ -137,7 +138,7 @@ def plot_signals(ax, rng):
     width = 0.27
     for e_index, e in enumerate(EXPERTISE):
         base = rng.normal(TRUE_VALUE, max(1e-9, 1 - e), N_SIGNALS)
-        for b_index, (b, color) in enumerate(zip(BIASES, BIAS_COLORS)):
+        for b_index, (b, color) in enumerate(zip(BIASES, role_color("bias"))):
             box = ax.boxplot(base - b, positions=[e_index + (b_index - 1) * width],
                              widths=width * 0.95, patch_artist=True, whis=1.5,
                              flierprops=dict(marker="o", markersize=2),
@@ -151,35 +152,6 @@ def plot_signals(ax, rng):
     ax.set(xlim=(-0.5, len(EXPERTISE) - 0.5), ylim=(-0.1, 1.1), xlabel="Expertise",
            ylabel="Signal", title="Expertise and Bias: Signal Quality")
     handles = [plt.Rectangle((0, 0), 1, 1, facecolor=c, edgecolor="#333333")
-               for c in BIAS_COLORS]
+               for c in role_color("bias")]
     ax.legend(handles, ["−0.1", "0", "+0.1"], title="Bias", loc="upper center",
               bbox_to_anchor=(0.5, -0.22), ncols=3, frameon=False, handlelength=1.2)
-
-
-def main():
-    rng = np.random.default_rng(42)
-    # 2 x 2 grid: A (risk aversion: order size | reservation price) on top, B | C below.
-    figure = plt.figure(figsize=(WIDTH, 6.4), layout="constrained")
-    top, bottom = figure.subfigures(2, 1, height_ratios=[1.05, 1])
-    ax_a, ax_a2 = top.subplots(1, 2)
-    ax_b, ax_c = bottom.subplots(1, 2)
-    plot_order_size(ax_a)
-    plot_reservation(ax_a2)
-    top.suptitle("Risk Aversion", fontsize=style.TITLE)
-    for ax in (ax_a, ax_a2):
-        ax.title.set_fontsize(style.LABEL)            # subtitles under the shared title
-    top.legend(*ax_a.get_legend_handles_labels(), title="Risk Aversion",
-               loc="outside lower center", ncols=len(RISK_AVERSIONS), frameon=False,
-               handlelength=1.2, columnspacing=1.0)
-    plot_stubbornness(ax_b, rng)
-    plot_signals(ax_c, rng)
-    ax_b.set_title("Stubbornness")
-    ax_c.set_title("Expertise and Bias")
-    ax_b.set_ylabel("Market Valuation")
-    style.label_panels(((ax_a, "A"), (ax_b, "B"), (ax_c, "C")))
-    style.save(figure, FIGURES_DIR / "stylised_mechanisms_clob", "stylised_mechanisms_clob")
-    plt.close(figure)
-
-
-if __name__ == "__main__":
-    main()
