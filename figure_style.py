@@ -3,6 +3,9 @@ so text renders at identical point sizes across figures when they are placed at 
 
 Import and call apply() before drawing, build figures PAGE_WIDTH (full width) or COLUMN_WIDTH
 (half-page) inches wide, and save them with save(), which checks fonts and page bounds.
+
+Every figure takes its colours from PALETTE by name, through color(), at the moment it is
+drawn, so changing a colour here (or in the notebook) changes it in every figure.
 """
 
 import warnings
@@ -21,6 +24,22 @@ TITLE = 9                 # panel titles
 LABEL = 8                 # axis labels
 SMALL = 7                 # tick labels, legends, in-plot notes
 SIZES = {PANEL, TITLE, LABEL, SMALL}
+
+PALETTE = {
+    # The power_prediction palette (cell 3 of the original notebooks).
+    "lavender": "#CC99FF", "navy": "#000080", "green": "#339966", "orange": "#F4A261",
+    "ruby": "#B22222", "violet": "#6A4C93", "indigo": "#1D3557", "teal": "#2A9D8F",
+    "steel": "#457B9D", "amber": "#FFB347", "crimson": "#E63946",
+    # Further colours used by single figures.
+    "lilac": "#B788E5", "sky": "#1E90FF", "tangerine": "#FF8C00", "royal": "#4169E1",
+    "aqua": "#20B2AA", "slate": "#6A5ACD", "plum": "#8E3B8E", "gold": "#FFA500",
+    "deep_plum": "#5B1F7A", "burnt": "#C45A00",
+}
+
+
+def color(names):
+    """The PALETTE colour for a name, or a list of colours for a sequence of names."""
+    return PALETTE[names] if isinstance(names, str) else [PALETTE[name] for name in names]
 
 
 def apply():

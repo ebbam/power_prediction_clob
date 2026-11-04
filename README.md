@@ -16,10 +16,13 @@ python3 -m pytest tests            # check everything works
 ## Reproducing the manuscript figures
 
 
+Open `manuscript_figures.ipynb` and run all cells. It loads the functions, sets the plotting
+parameters and colour palette, loads the cached simulations from `sim_output/` (set
+`RERUN = True` to redo them, ~25 min on 4 processes), then builds each figure in its own section.
+To run it without opening Jupyter:
+
 ```
-python3 paper_figures.py          # Figures 1–3, drawn from the cached simulations in sim_output/
-python3 paper_figures.py --rerun  # rerun the simulations first (~25 min on 4 processes)
-python3 stylised_mechanisms.py    # stylised mechanisms figure (no simulation)
+jupyter nbconvert --to notebook --execute --inplace manuscript_figures.ipynb
 ```
 
 Figures are saved to `figures/` as PDF and PNG:
@@ -29,19 +32,20 @@ Figures are saved to `figures/` as PDF and PNG:
 | Figure 1 | `figure1_clob` |
 | Figure 2 | `figure2`, `figure2e` |
 | Figure 3 (panels A–C; panels D–E use `theory_checks/figdata_AB.json`) | `figure3b`, `figure3b_theory` |
-| Stylised mechanisms | `stylised_mechanisms_clob` |
+| Figure 4 (stylised mechanisms) | `stylised_mechanisms_clob` |
 
 ### Files needed
 
 | File | Role |
 |---|---|
-| `paper_figures.py` | Runs the simulations for Figures 1–3 (cached in `sim_output/`) and draws them |
-| `stylised_mechanisms.py` | Draws the stylised mechanisms figure |
+| `manuscript_figures.ipynb` | Builds and saves every manuscript figure |
+| `paper_figures.py` | Simulations for Figures 1–3 (cached in `sim_output/`) and their panel functions |
+| `stylised_mechanisms.py` | Panel functions for Figure 4 |
 | `bettor.py` | The model: agents (`Bettor`, `add_whale`), fundamental paths and the market (`run_market_lob`) |
 | `orderbook.py` | The order book used by `run_market_lob` |
 | `walrasian.py` | The original market mechanism, kept for comparison with the CLOB |
 | `metrics.py` | Distortion and convergence measures, and their plots |
-| `figure_style.py` | Shared figure style and saving |
+| `figure_style.py` | Shared figure style, colour palette and saving |
 | `experiments/whale_convergence_experiment.py` | Whale settings, fundamental paths and populations used by Figure 2 |
 
 Figure 3 D–E also needs the theory results in `theory_checks/` (see below).

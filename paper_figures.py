@@ -1,4 +1,5 @@
-"""Paper figures 1-3, rerun with the CLOB market (run_market_lob) in place of the original market.
+"""Simulations and plotting functions for the manuscript figures, which are assembled and saved
+in manuscript_figures.ipynb. The market is the CLOB (run_market_lob).
 
 Figure 1
     A  Market price, election outcome and average valuation in one example run
@@ -25,21 +26,19 @@ Supplementary: trader_wealth_by_risk_aversion (Figure 2D's layout by risk aversi
 The simulations run on N_WORKERS = 4 processes.
 
 Simulations are cached in sim_output/ (figure1_sweep.csv ~4 min; figure2_runs.csv and
-figure3_runs.csv ~10 min each on 4 processes); pass --rerun to redo them. Figures go to figures/.
+figure3_runs.csv ~10 min each on 4 processes): the load_* functions read the cache, or rerun
+the simulations when asked to or when the cache is missing. Figures go to figures/.
 """
 
 import json
 import math
-import sys
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import LinearSegmentedColormap, Normalize
-from matplotlib.patches import Patch
 from matplotlib.ticker import FuncFormatter, PercentFormatter
 
 from bettor import Bettor, add_whale, fundamental_path, run_market_lob
@@ -47,9 +46,6 @@ from metrics import (
     calibrate_band,
     distortion_metrics,
     normalised_pull,
-    plot_normalised_pull,
-    plot_max_error,
-    plot_time_outside_band,
     smoothed_absolute_error,
 )
 import figure_style as style
@@ -75,10 +71,6 @@ FIGURES_DIR.mkdir(exist_ok=True)
 SIM_DIR = OUTPUT_DIR / "sim_output"
 SIM_DIR.mkdir(exist_ok=True)
 SWEEP_CSV = SIM_DIR / "figure1_sweep.csv"
-LINE_COLOR = "#B22222"
-POINT_COLOR = "#457B9D"
-ELECTION_COLOR = "#E63946"
-VALUATION_COLOR = "#B788E5"
 # Panel D: market price and outcome as correlated normals (co-author's parameters).
 MISCLASS_SIGMA_PRICE = 0.07
 MISCLASS_SIGMA_OUTCOME = 0.05
@@ -95,7 +87,6 @@ DESIGN_BUDGET = 100
 DESIGN_EXPERTISE = 0.9
 # Figure 2E: whale valuations at a fixed whale share.
 WHALE_VALUATIONS = (0.6, 0.7, 0.8)
-VALUATION_COLORS = ("#457B9D", "#339966", "#F4A261")
 VALUATION_WHALE_SHARE = 0.5
 VALUATION_RUNS = 500
 VALUATION_SEED = 20_000
@@ -118,17 +109,23 @@ THEORY_CHECKS_DIR = OUTPUT_DIR / "theory_checks"
 THEORY_DELTA = 0.2            # whale valuation 0.7 minus true outcome 0.5 in those checks
 THEORY_STUBBORNNESS = 0.3
 
-# The power_prediction palette (cell 3 of the original notebooks), with the orders the
-# published figures use.
-PALETTE = {
-    "lavender": "#CC99FF", "navy": "#000080", "green": "#339966", "orange": "#F4A261",
-    "ruby": "#B22222", "violet": "#6A4C93", "indigo": "#1D3557", "teal": "#2A9D8F",
-    "steel": "#457B9D", "amber": "#FFB347", "crimson": "#E63946",
+# Colours by role, as names in figure_style.PALETTE (looked up when a figure is drawn).
+COLORS = {
+    "whale_share": ("navy", "green", "orange", "ruby"),       # Figure 2 A-C, by ρ
+    "herding": ("teal", "ruby", "crimson", "steel", "violet"),  # Figure 3 A-C, by h
+    "whale_valuation": ("steel", "green", "orange"),          # Figure 2E, by valuation
+    "rho_ramp": ("lavender", "navy"),                         # Figure 2D, ρ from low to high
+    "theory": ("navy", "orange"),                             # Figure 3 D-E
+    "price_up": "tangerine", "price_down": "sky",             # Figure 1A market pressure
+    "outcome": "crimson", "mean_valuation": "lilac",          # Figure 1A
+    "volume": "indigo", "yes": "green", "no": "ruby",         # Figure 1C
+    "sweep_line": "ruby", "sweep_point": "steel",             # Figure 1B
 }
-# Figure 2's ρ groups: the first four colours of the project palette, in its order
-# (cell 1 of Dec25Plots.ipynb).
-WHALE_SHARE_COLORS = [PALETTE[name] for name in ("navy", "green", "orange", "ruby")]
-HERDING_COLORS = [PALETTE[name] for name in ("teal", "ruby", "crimson", "steel", "violet")]
+
+
+def role_color(role):
+    """The colour, or list of colours, for a role in COLORS."""
+    return style.color(COLORS[role])
 
 
 def _budget_population(variance):
@@ -250,12 +247,12 @@ def plot_market_price(record, ax):
     downward = prices[:-1] + np.where(pressure < 0, pressure, 0) / PRESSURE_SCALE
 
     ax.plot(prices, color="black", label="Market price", drawstyle="steps")
-    ax.fill_between(periods, downward, prices[:-1], color="dodgerblue", alpha=0.5,
+    ax.fill_between(periods, downward, prices[:-1], color=role_color("price_down"), alpha=0.5,
                     step="pre", label="Downward Pressure")
-    ax.plot(record["fundamental"], color=ELECTION_COLOR, label="Election outcome", drawstyle="steps")
-    ax.fill_between(periods, upward, prices[:-1], color="darkorange", alpha=0.5,
+    ax.plot(record["fundamental"], color=role_color("outcome"), label="Election outcome", drawstyle="steps")
+    ax.fill_between(periods, upward, prices[:-1], color=role_color("price_up"), alpha=0.5,
                     step="pre", label="Upward Pressure")
-    ax.plot(record["beliefs"], color=VALUATION_COLOR, linewidth=1.2, label="Average market valuation",
+    ax.plot(record["beliefs"], color=role_color("mean_valuation"), linewidth=1.2, label="Average market valuation",
             drawstyle="steps")
     ax.set(ylim=(0, 1.02), xlabel="Time", ylabel="Result", title="Market Price")
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.32), ncols=2, frameon=False)
@@ -273,12 +270,12 @@ def plot_volume(record, ax_volume, ax_capital, volume="all"):
     """
     if volume == "new":
         outstanding = np.asarray(record["vol_history"], dtype=float) / 2
-        ax_volume.plot(np.diff(outstanding), color="#1D3557", drawstyle="steps")
+        ax_volume.plot(np.diff(outstanding), color=role_color("volume"), drawstyle="steps")
         ax_volume.axhline(0, color="#BBBBBB", linewidth=0.6)
         ax_volume.set(ylabel="New contracts\nper period (net)",
                       title="New Contracts & Capital Locked")
     else:
-        ax_volume.plot(record["traded_volume"], color="#1D3557", drawstyle="steps")
+        ax_volume.plot(record["traded_volume"], color=role_color("volume"), drawstyle="steps")
         ax_volume.set(ylabel="Traded per\nperiod",
                       title="Trading Volume & Capital Locked", ylim=(0, None))
     ax_volume.tick_params(axis="x", labelbottom=False)
@@ -291,10 +288,10 @@ def plot_volume(record, ax_volume, ax_capital, volume="all"):
     yes_stake = open_interest * prices / total
     no_stake = open_interest * (1 - prices) / total
     periods = np.arange(len(open_interest))
-    ax_capital.fill_between(periods, 0, yes_stake, step="post", color=PALETTE["green"],
+    ax_capital.fill_between(periods, 0, yes_stake, step="post", color=role_color("yes"),
                             alpha=0.85, linewidth=0, label="Yes Contracts")
     ax_capital.fill_between(periods, yes_stake, yes_stake + no_stake, step="post",
-                            color=PALETTE["ruby"], alpha=0.75, linewidth=0,
+                            color=role_color("no"), alpha=0.75, linewidth=0,
                             label="No Contracts")
     ax_capital.legend(loc="upper center", bbox_to_anchor=(0.5, -0.55), ncols=2,
                       frameon=False)
@@ -309,10 +306,10 @@ def plot_lag_column(sweep, parameter, ax):
     data = sweep.loc[sweep["parameter"] == parameter]
     spread = np.ptp(data["value"]) * 0.01
     jitter = np.random.default_rng(0).uniform(-spread, spread, len(data))
-    ax.scatter(data["value"] + jitter, data["peak_lag"], s=4, alpha=0.6, color=POINT_COLOR)
+    ax.scatter(data["value"] + jitter, data["peak_lag"], s=4, alpha=0.6, color=role_color("sweep_point"))
     stats = data.groupby("value")["peak_lag"].quantile([0.25, 0.5, 0.75]).unstack()
-    ax.plot(stats.index, stats[0.5], color=LINE_COLOR, linewidth=1)
-    ax.fill_between(stats.index, stats[0.25], stats[0.75], color=LINE_COLOR, alpha=0.25,
+    ax.plot(stats.index, stats[0.5], color=role_color("sweep_line"), linewidth=1)
+    ax.fill_between(stats.index, stats[0.25], stats[0.75], color=role_color("sweep_line"), alpha=0.25,
                     linewidth=0)
     ax.set(xlabel=parameter, ylabel="Best-matching lag", ylim=(-0.5, MAX_LAG + 0.5),
            yticks=range(MAX_LAG + 1))
@@ -321,12 +318,12 @@ def plot_lag_column(sweep, parameter, ax):
 def plot_sweep_column(sweep, parameter, column, ylabel, ax):
     """Every run as a dot, with the mean and its 95% confidence interval across runs."""
     data = sweep.loc[sweep["parameter"] == parameter]
-    ax.scatter(data["value"], data[column], s=4, alpha=0.6, color=POINT_COLOR)
+    ax.scatter(data["value"], data[column], s=4, alpha=0.6, color=role_color("sweep_point"))
     stats = data.groupby("value")[column].agg(["mean", "std", "count"])
     half_width = 1.96 * stats["std"] / np.sqrt(stats["count"])
-    ax.plot(stats.index, stats["mean"], color=LINE_COLOR, linewidth=1)
+    ax.plot(stats.index, stats["mean"], color=role_color("sweep_line"), linewidth=1)
     ax.fill_between(stats.index, stats["mean"] - half_width, stats["mean"] + half_width,
-                    color=LINE_COLOR, alpha=0.25, linewidth=0)
+                    color=role_color("sweep_line"), alpha=0.25, linewidth=0)
     ax.set(xlabel=parameter, ylabel=ylabel)
 
 
@@ -369,7 +366,7 @@ def plot_misclassification(ax, figure):
         "Misclassification probability")
 
 
-def _style_axis(ax):
+def style_axis(ax):
     """Figure 1's look: a full frame around the plot and no gridlines."""
     for spine in ax.spines.values():
         spine.set_visible(True)
@@ -377,54 +374,8 @@ def _style_axis(ax):
 
 
 def save(figure, name):
+    """Save to figures/ as PDF and PNG, after figure_style's font and layout checks."""
     style.save(figure, FIGURES_DIR / name, name)
-    plt.close(figure)
-
-
-def figure1(rerun, right_column="cross_correlation", name="figure1_clob", volume="all"):
-    """right_column: "cross_correlation" (peak value), "lag" (the lag at which it peaks) or
-    "delay" (average response delay)."""
-    sweep = pd.read_csv(SWEEP_CSV) if SWEEP_CSV.exists() and not rerun else run_sweep()
-    record = example_run()
-
-    # Layout of the original figure: a wide left column (short panel A, C, D) and the
-    # parameter sweeps on the right, each plot with its own y-axis label.
-    figure = plt.figure(figsize=(style.PAGE_WIDTH, 7.4), layout="constrained")
-    left_fig, right_fig = figure.subfigures(1, 2, width_ratios=[1.15, 1], wspace=0.03)
-    left = left_fig.add_gridspec(4, 1, height_ratios=[1.0, 0.65, 0.65, 1.75])
-    ax_a = left_fig.add_subplot(left[0])
-    ax_c = left_fig.add_subplot(left[1])
-    ax_capital = left_fig.add_subplot(left[2], sharex=ax_c)
-    ax_d = left_fig.add_subplot(left[3])
-    plot_market_price(record, ax_a)
-    plot_volume(record, ax_c, ax_capital, volume)
-    plot_misclassification(ax_d, left_fig)
-
-    right_titles = {"lag": "Best-Matching Lag", "delay": "Response Delay",
-                    "cross_correlation": "Peak Cross-Corr."}
-    sweep_axes = []
-    axes = right_fig.subplots(len(SWEEPS), 2)
-    for row, parameter in enumerate(SWEEPS):
-        ax_mse, ax_right = axes[row]
-        plot_sweep_column(sweep, parameter, "mse", "", ax_mse)
-        if right_column == "lag":
-            plot_lag_column(sweep, parameter, ax_right)
-            ax_right.set_ylabel("")
-        elif right_column == "delay":
-            plot_sweep_column(sweep, parameter, "response_delay", "", ax_right)
-            ax_right.set_ylim(bottom=-0.2)
-        else:
-            plot_sweep_column(sweep, parameter, "peak_cross_correlation", "", ax_right)
-            ax_right.set_ylim(top=1)
-        for ax in (ax_mse, ax_right):
-            ax.xaxis.set_major_locator(plt.MaxNLocator(3))
-        sweep_axes.append(ax_mse)
-    # What each column measures, once at its top, instead of a y-label on every row.
-    axes[0, 0].set_title("Mean Squared Error")
-    axes[0, 1].set_title(right_titles[right_column])
-
-    style.label_panels(((ax_a, "A"), (sweep_axes[0], "B"), (ax_c, "C"), (ax_d, "D")))
-    save(figure, name)
 
 
 def parallel_map(function, *iterables):
@@ -433,7 +384,7 @@ def parallel_map(function, *iterables):
         return list(pool.map(function, *iterables, chunksize=8))
 
 
-def _group_legend_entries(axes):
+def group_legend_entries(axes):
     """Legend handles of axes[0] by group name (per-panel medians dropped, the band renamed);
     removes every axis's own legend."""
     entries = {}
@@ -532,7 +483,7 @@ def plot_valuation_paths(paths, ax):
     control = paths.loc[paths["valuation"].isna()].filter(regex=r"^t\d+$").to_numpy()
     ax.axhline(0, color="#BBBBBB", linewidth=0.8)
     ax.plot(times, control.mean(axis=0), color="#777777", linewidth=1.2, label="No whale")
-    for valuation, color in zip(WHALE_VALUATIONS, VALUATION_COLORS):
+    for valuation, color in zip(WHALE_VALUATIONS, role_color("whale_valuation")):
         errors = paths.loc[paths["valuation"] == valuation].filter(regex=r"^t\d+$").to_numpy()
         mean = errors.mean(axis=0)
         half_width = 1.96 * errors.std(axis=0, ddof=1) / np.sqrt(len(errors))
@@ -547,7 +498,7 @@ def plot_valuation_paths(paths, ax):
     ax.set_title(f"Price Error After a Whale Shock (ρ = {VALUATION_WHALE_SHARE:g})")
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncols=3, frameon=False,
               handlelength=1.3, columnspacing=0.8)
-    _style_axis(ax)
+    style_axis(ax)
 
 
 def profit_run(share, run):
@@ -600,7 +551,35 @@ def run_profit_experiment():
     return runs, traders
 
 
-def load_profit_experiment(rerun):
+def cached(path, simulate, rerun=False, needs=None):
+    """The CSV at path, or simulate() (which saves it) on rerun, when the file is missing, or
+    when it lacks the column `needs` (it predates that statistic)."""
+    if path.exists() and not rerun:
+        frame = pd.read_csv(path)
+        if needs is None or needs in frame:
+            return frame
+    return simulate()
+
+
+def load_sweep(rerun=False):
+    return cached(SWEEP_CSV, run_sweep, rerun)
+
+
+def load_whale_shares(rerun=False):
+    return cached(WHALE_CSV, run_whale_shares, rerun, needs="nonwhale_return")
+
+
+def load_valuations(rerun=False):
+    return cached(VALUATION_CSV, run_valuations, rerun)
+
+
+def load_herding(rerun=False, theory=False):
+    return cached(HERDING_THEORY_CSV if theory else HERDING_CSV, lambda: run_herding(theory),
+                  rerun, needs="normalised_pull")
+
+
+def load_profit_experiment(rerun=False):
+    """(runs, traders) frames of the profit experiment."""
     if (PROFIT_DIR / "traders.csv.gz").exists() and not rerun:
         return pd.read_csv(PROFIT_DIR / "runs.csv"), pd.read_csv(PROFIT_DIR / "traders.csv.gz")
     return run_profit_experiment()
@@ -643,22 +622,12 @@ def plot_trader_returns(traders, ax, column="expertise", groups=None, xlabel="Tr
     _wealth_axis(ax)
     ax.legend(title="ρ (Whale Capital Share)", loc="upper center", bbox_to_anchor=(0.5, -0.3),
               ncols=5, frameon=False, handlelength=1.2, columnspacing=1.0)
-    _style_axis(ax)
-
-
-def trader_wealth_by_risk_aversion(rerun=False):
-    """Supplementary figure: panel D's layout with trader risk aversion on the x-axis."""
-    _, traders = load_profit_experiment(rerun)
-    figure, ax = plt.subplots(figsize=(style.PAGE_WIDTH, 3.0), constrained_layout=True)
-    plot_trader_returns(traders, ax, column="risk_aversion", groups=RISK_AVERSION_GROUPS,
-                        xlabel="Trader Risk Aversion",
-                        title="Trader Wealth by Risk Aversion and Whale Share")
-    save(figure, "trader_wealth_by_risk_aversion")
+    style_axis(ax)
 
 
 def profit_ramp():
     """Sequential colour ramp for ordered ρ levels, between two project-palette colours."""
-    return LinearSegmentedColormap.from_list("rho", [PALETTE["lavender"], PALETTE["navy"]])
+    return LinearSegmentedColormap.from_list("rho", role_color("rho_ramp"))
 
 
 def profit_colors(n):
@@ -675,48 +644,6 @@ def rho_colorbar(figure_or_subfigure, ax, shares, label="ρ (Whale Capital Share
     bar.set_label(label)
     bar.set_ticks(shares[::3] if len(shares) > 5 else shares)
     return bar
-
-
-def figure2(rerun):
-    """Full page width, 2 x 2: A maximum error | B time above band; C pull toward the whale |
-    D trader wealth by expertise and ρ (all 10 whale shares). Panel E (price error after a
-    whale shock) is saved separately as figure2e."""
-    cached = WHALE_CSV.exists() and not rerun
-    metrics = pd.read_csv(WHALE_CSV) if cached else run_whale_shares()
-    if "nonwhale_return" not in metrics:
-        metrics = run_whale_shares()
-    runs, traders = load_profit_experiment(rerun)
-    paths = (pd.read_csv(VALUATION_CSV) if VALUATION_CSV.exists() and not rerun
-             else run_valuations())
-
-    figure = plt.figure(figsize=(style.PAGE_WIDTH, 6.6), layout="constrained")
-    top, bottom = figure.subfigures(2, 1, height_ratios=[1, 1.1])
-    ax_a, ax_b = top.subplots(1, 2)
-    ax_c, ax_d = bottom.subplots(1, 2)
-    for ax, plot in ((ax_a, plot_max_error), (ax_b, plot_time_outside_band),
-                     (ax_c, plot_normalised_pull)):
-        plot(metrics, RHO, ax, palette=WHALE_SHARE_COLORS)
-        _style_axis(ax)
-        ax.set_ylabel("Runs")
-    ax_a.set(title="Maximum Market Error", xlabel="Max |Price − Outcome|")
-    ax_b.set(title="Time Above Ordinary Noise", xlabel="Share of Periods Above Band")
-    ax_c.set(title="Pull Toward the Whale", xlabel="Normalised Pull (0 = outcome, 1 = whale)")
-
-    # A-C share colours: one legend, under the top row.
-    entries = _group_legend_entries((ax_a, ax_b, ax_c))
-    top.legend(list(entries.values()), list(entries), title="ρ (Whale Capital Share), A–C",
-               loc="outside lower center", ncols=len(entries), frameon=False)
-
-    plot_trader_returns(traders, ax_d, title="Trader Wealth by Expertise and Whale Share")
-    ax_d.set_ylabel("Wealth Multiple (log scale)")
-    rho_colorbar(bottom, ax_d, list(PROFIT_SHOWN_SHARES))
-    style.label_panels(((ax_a, "A"), (ax_b, "B"), (ax_c, "C"), (ax_d, "D")))
-    save(figure, "figure2")
-
-    figure, ax_e = plt.subplots(figsize=(style.PAGE_WIDTH, 3.4), layout="constrained")
-    plot_valuation_paths(paths, ax_e)
-    style.label_panels(((ax_e, "E"),))
-    save(figure, "figure2e")
 
 
 def herding_run(seed, h, with_whale, theory=False):
@@ -783,21 +710,21 @@ def plot_theory_whale_share(ax, a):
     rho = np.linspace(0, 0.65, 100)
     ax.plot(rho, rho * THEORY_DELTA, color="black", linewidth=1.2, label="Theory: ρΔ")
     exact, noisy = a[a["noise"] == 0], a[a["noise"] > 0]
-    ax.plot(exact["rho"], exact["error"], "o", color=PALETTE["navy"], markersize=5,
+    ax.plot(exact["rho"], exact["error"], "o", color=role_color("theory")[0], markersize=5,
             label="Simulated, exact signals")
-    ax.plot(noisy["rho"], noisy["error"], "s", color=PALETTE["navy"], markerfacecolor="white",
+    ax.plot(noisy["rho"], noisy["error"], "s", color=role_color("theory")[0], markerfacecolor="white",
             markersize=5, label="Simulated, noisy signals")
     ax.set(xlim=(0, 0.65), ylim=(0, None), xlabel="Whale's Share of Capital (ρ)",
            ylabel="Steady State Price Error",
            title=f"Whale Distortion Without Herding (Δ = {THEORY_DELTA:g})")
     ax.legend(loc="upper left", frameon=False)
-    _style_axis(ax)
+    style_axis(ax)
 
 
 def plot_theory_herding(ax, b):
     """Share of the whale's misvaluation passed into the price, against herding strength."""
     h = np.linspace(0, 1, 200)
-    for rho, color in zip(sorted(b["rho"].unique()), (PALETTE["navy"], PALETTE["orange"])):
+    for rho, color in zip(sorted(b["rho"].unique()), role_color("theory")):
         ax.plot(h, theory_pull(h, rho, THEORY_STUBBORNNESS), color=color, linewidth=1.2)
         points = b[b["rho"] == rho]
         ax.plot(points["h"], points["pass_through"], "o", color=color, markersize=5,
@@ -808,65 +735,4 @@ def plot_theory_herding(ax, b):
            ylabel="Pass-Through of Whale Error",
            title=f"Herding Amplifies the Whale (s = {THEORY_STUBBORNNESS:g})")
     ax.legend(loc="upper left", frameon=False)
-    _style_axis(ax)
-
-
-def figure3(rerun, theory=False):
-    """Ridgelines A-C (one row per herding level: P1, P3, P1b) above the CLOB theory panels D-E.
-
-    theory=False: the original design (whale at 1, mixed risk aversion), saved as figure3b.
-    theory=True: the theory's assumptions (whale at 0.7, log utility), from its own runs, saved
-    as figure3b_theory.
-    """
-    csv = HERDING_THEORY_CSV if theory else HERDING_CSV
-    metrics = pd.read_csv(csv) if csv.exists() and not rerun else run_herding(theory)
-    if "normalised_pull" not in metrics:
-        metrics = run_herding(theory)  # cached runs predate the pull
-
-    heights = [2.9, 3.0]
-    figure = plt.figure(figsize=(style.PAGE_WIDTH, sum(heights) + 0.5), layout="constrained")
-    # Rows as separate subfigures, so each row is laid out on its own.
-    top, bottom = figure.subfigures(2, 1, height_ratios=heights)
-    axes = list(top.subplots(1, 3))
-    panels = (
-        (plot_max_error, "Maximum Error", "Max |Price − Outcome|"),
-        (plot_time_outside_band, "Time Above Noise", "Share of Periods Above Band"),
-        (plot_normalised_pull, "Whale Pull", "Normalised Pull"),
-    )
-    for ax, (plot, title, xlabel) in zip(axes, panels):
-        plot(metrics, HERDING, ax, palette=HERDING_COLORS, layout="ridge", row_labels=False)
-        ax.set(title=title, xlabel=xlabel, ylabel="")
-        _style_axis(ax)
-
-    # One legend under the row: group colours as filled boxes, then the ordinary band.
-    entries = _group_legend_entries(axes)
-    names = sorted(entries, key=lambda name: name.startswith("Ordinary"))
-    handles = [entries[name] if name.startswith("Ordinary")
-               else Patch(facecolor=entries[name].get_edgecolor(), edgecolor="none")
-               for name in names]
-    top.legend(handles, names, title="Herding Strength (h)", loc="outside lower center",
-               ncols=len(names), frameon=False, handlelength=1.4)
-
-    # D-E: the co-author's CLOB theory checks (theory_checks/), restyled.
-    checks_a, checks_b = load_theory_checks()
-    ax_d, ax_e = bottom.subplots(1, 2)
-    plot_theory_whale_share(ax_d, checks_a)
-    plot_theory_herding(ax_e, checks_b)
-    style.label_panels([*zip(axes, "ABC"), (ax_d, "D"), (ax_e, "E")])
-    save(figure, "figure3b" + ("_theory" if theory else ""))
-
-
-def main():
-    rerun = "--rerun" in sys.argv
-    figure1(rerun)
-    # Alternative right-hand columns for Figure 1B (same sweep; drawn from the cache).
-    figure1(False, right_column="delay", name="figure1_response_delay_clob")
-    figure1(False, right_column="lag", name="figure1_best_lag_clob")
-    figure2(rerun)
-    trader_wealth_by_risk_aversion()
-    figure3(rerun)
-    figure3(rerun, theory=True)
-
-
-if __name__ == "__main__":
-    main()
+    style_axis(ax)
