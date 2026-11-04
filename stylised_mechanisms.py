@@ -1,4 +1,4 @@
-"""Panels of the stylised mechanisms figure (Figure 4; assembled in manuscript_figures.ipynb):
+"""Panels of the stylised mechanisms figure (assembled in manuscript_figures.ipynb):
 how the bettor parameters shape an agent's decisions.
 
     A  Risk aversion, for a bettor whose internal valuation is V_i = 0.5:
