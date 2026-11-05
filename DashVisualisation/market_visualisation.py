@@ -12,6 +12,9 @@ import plotly.express as px
 from dash import dcc, html
 from dash.dependencies import Input, Output
 
+import warnings
+warnings.filterwarnings("ignore", message="Parsing dates involving a day of month", category=DeprecationWarning)
+
 from bettor import Bettor, add_whale, fundamental_path, run_market_lob   # copy of ../bettor.py
 from plotly_plots import (joint_plot, plot_capital_locked, plot_hist, plot_market_error, plot_market_price,
                           plot_trading_activity)

@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 
 
 WHALE_ENTRY_COLOUR = "#00a6b8"      # cyan-teal, used for nothing else
-WHALE_ORDER_COLOUR = "#1a1a19"
+WHALE_ORDER_COLOUR = "#0A0A0A"
 
 
 def add_whale_entry(fig, period, **legend):
@@ -23,6 +23,7 @@ def add_whale_entry(fig, period, **legend):
                              line=dict(color=WHALE_ENTRY_COLOUR, width=2), name="Whale enters",
                              hoverinfo="skip", **legend))
     fig.update_layout(yaxis9=dict(overlaying="y", range=[0, 1], visible=False, fixedrange=True))
+    
     return fig
 
 
@@ -78,14 +79,22 @@ def plot_market_price(rec, whale_valuation=None, whale_start=None):
                              line=dict(color="#6250d6", dash="dot", width=1.5, shape="hv"), name="Mean valuation"))
     fig.add_trace(go.Scatter(x=t, y=rec["weighted_beliefs"][:T], mode="lines",
                              line=dict(color="#1baf7a", dash="dash", width=1.5, shape="hv"), name="Budget-weighted mean valuation"))
-    if whale_valuation is not None:
-        fig.add_hline(y=whale_valuation, line=dict(color="#52514e", dash="dot", width=1),
-                      annotation_text="Whale valuation", annotation_position="top left")
     add_whale_entry(fig, whale_start)
+    if whale_valuation is not None:
+        fig.add_trace(go.Scatter(
+            x=[0, T - 1],
+            y=[whale_valuation, whale_valuation],
+            mode="lines",
+            line=dict(color="#52514e", dash="dot", width=2),
+            name="Whale valuation",
+            visible=True,
+            showlegend=True,
+            hovertemplate="Whale valuation: %{y:.2f}<extra></extra>"
+        ))
     fig.update_layout(title="Market price and order book", xaxis_title="Period",
                       yaxis=dict(title="Price / probability", range=[0, 1.02]),
-                      legend=dict(x=0, y=-0.2, orientation="h"), height=550,
-                      margin=dict(t=40, b=20), template="plotly_white")
+                      legend=dict(x=0, y=-0.18, orientation="h", xanchor='left', yanchor='top'), height=550,
+                      margin=dict(t=40, b=100,l=65,r=30), template="plotly_white")
     return fig
 
 
