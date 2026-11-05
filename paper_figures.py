@@ -90,12 +90,13 @@ WHALE_CSV = SIM_DIR / "figure2_runs.csv"
 # expertise, plus a whale (Dec25Plots cells 27-31).
 DESIGN_BUDGET = 100
 DESIGN_EXPERTISE = 0.9
-# Figure 3E: whale valuations at a fixed whale share.
+# Figure 3E: whale valuations at a fixed whale share, everyone (whale included) at log utility,
+# the CLOB theory's assumption behind the expected shift ρΔ.
 WHALE_VALUATIONS = (0.6, 0.7, 0.8)
 VALUATION_WHALE_SHARE = 0.5
 VALUATION_RUNS = 500
 VALUATION_SEED = 20_000
-VALUATION_CSV = SIM_DIR / "figure2c_paths.csv"
+VALUATION_CSV = SIM_DIR / "figure3e_paths_log_utility.csv"
 # Figure 3 D-E: profit experiment (expertise spread 0-1, ρ = 0, 0.1, ..., 0.9).
 PROFIT_SHARES = tuple(round(0.1 * k, 1) for k in range(10))
 PROFIT_RUNS = 500
@@ -486,13 +487,15 @@ def run_whale_shares():
 
 
 def valuation_run(seed, valuation):
-    """One run of the Figure 3E design; valuation None is the no-whale control.
+    """One run of the Figure 3E design; valuation None is the no-whale control. Everyone has
+    log utility (risk aversion 1), as the theory behind ρΔ assumes.
 
     Returns the price - fundamental path. The last quote is carried over one-sided books, and
     the opening price fills any periods before the first quote.
     """
     path = make_election_path(seed)
-    population = design_population(seed, VALUATION_WHALE_SHARE, valuation)
+    population = design_population(seed, VALUATION_WHALE_SHARE, valuation, whale_risk_av=1.0,
+                                   risk_av=1.0)
     record = standard_market(seed, population, path)
     prices = pd.Series(record["midquote"]).ffill().fillna(INITIAL_PRICE).to_numpy()
     return prices - path[:T_MAX]
