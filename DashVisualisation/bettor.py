@@ -187,7 +187,8 @@ def run_market_lob(bettors, n_periods, fundamentals, initial_price, tick=0.01, t
     last trade). Per-period series (length n_periods) are returned alongside the reference
     price and belief series (length n_periods + 1). The recorded midquote is NaN whenever one
     side of the book is empty; whale_contracts is the whales' net YES position after each
-    period (negative when they are short, i.e. hold NO).
+    period (negative when they are short, i.e. hold NO), and whale_order_size the size of the
+    orders whales submitted that period (positive to buy, negative to sell).
     """
     if rng is None:
         rng = np.random.default_rng()
@@ -250,6 +251,8 @@ def run_market_lob(bettors, n_periods, fundamentals, initial_price, tick=0.01, t
                 continue
 
             period["n_buy_orders" if side > 0 else "n_sell_orders"] += 1
+            if agent.whale:
+                period["whale_order_size"] += side * qty
             period["submitted_buy_volume" if side > 0 else "submitted_sell_volume"] += qty
 
             for buyer, seller, fill_price, fill_qty in ob.submit(i, side, price, qty, t, ttl):
@@ -314,4 +317,5 @@ def _empty_period_counters(n_expired):
         "n_side_flipped": 0,               # order side opposite to the optimiser's desired trade
         "n_collateral_rejected": 0,        # order would leave worst-case wealth negative
         "n_one_sided_reference": 0,        # activations where no midquote existed
+        "whale_order_size": 0,             # signed size of the whales' orders (+ buy, - sell)
     }
