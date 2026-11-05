@@ -145,7 +145,7 @@ def label_panels(axes_and_letters, gap=4, align_tolerance=0.1, lift=0):
     gap = gap / 72 / figure.get_size_inches()[0]       # points -> share of figure width
     margin = 0.01
 
-    letters, lefts, tops = [], [], []
+    letters, lefts, tops, ceilings = [], [], [], []
     for ax, letter in pairs:
         text = figure.text(0, 0, letter, fontsize=PANEL, fontweight="bold", ha="left", va="top")
         width = text.get_window_extent(renderer).transformed(to_figure).width
@@ -155,12 +155,17 @@ def label_panels(axes_and_letters, gap=4, align_tolerance=0.1, lift=0):
                                  ax.bbox.x0 + 1, 1).transformed(to_figure).x0
         top = ax.get_position().y1
         holder = ax.get_figure()
+        suptitle = getattr(holder, "_suptitle", None) if holder is not figure else None
+        # A letter level with its own title must stay below its subfigure's title.
+        ceilings.append(suptitle.get_window_extent(renderer).transformed(to_figure).y0
+                        - gap * figure.get_size_inches()[0] / figure.get_size_inches()[1]
+                        if suptitle is not None and ax.get_title() else 1.0)
         if ax.get_title():
             title = ax.title.get_window_extent(renderer).transformed(to_figure)
             top = title.y1
             left = min(left, title.x0 - gap - width)    # keep clear of the title
-        elif holder is not figure and getattr(holder, "_suptitle", None) is not None:
-            top = holder._suptitle.get_window_extent(renderer).transformed(to_figure).y1
+        elif suptitle is not None:
+            top = suptitle.get_window_extent(renderer).transformed(to_figure).y1
         letters.append(text)
         lefts.append(max(left, margin))
         tops.append(top + lift / 72 / figure.get_size_inches()[1])
@@ -179,8 +184,8 @@ def label_panels(axes_and_letters, gap=4, align_tolerance=0.1, lift=0):
                 result[index] = pick(values[member] for member in group)
         return result
 
-    for text, x, y in zip(letters, aligned(lefts, min), aligned(tops, max)):
-        text.set_position((x, y))
+    for text, x, y, ceiling in zip(letters, aligned(lefts, min), aligned(tops, max), ceilings):
+        text.set_position((x, min(y, ceiling)))
     figure.set_layout_engine("none")      # keep the measured positions when saving
 
 
