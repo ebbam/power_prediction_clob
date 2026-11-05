@@ -123,14 +123,15 @@ def save(figure, path_without_suffix, name):
     figure.savefig(f"{path_without_suffix}.png", dpi=300)
 
 
-def label_panels(axes_and_letters, gap=4, align_tolerance=0.1):
-    """Bold panel letters level with each panel's title, at the left edge of its labels.
+def label_panels(axes_and_letters, gap=4, align_tolerance=0.1, lift=0):
+    """Bold panel letters level with each panel's title (or its subfigure's title when it has
+    none), at the left edge of its labels, raised by `lift` points.
 
-    Letters whose positions are within align_tolerance (a share of the figure's width or
-    height) are aligned: one x for letters in the same column, one height for letters in the
-    same row. Each letter also keeps `gap` points clear of its panel's title. Placed after
-    the layout is fixed, from each axis's drawn extent, so they never collide with tick or
-    axis labels at any figure width.
+    Letters whose positions lie within align_tolerance of each other (a share of the figure's
+    width or height, chained, so a whole column counts together) are aligned: one x for
+    letters in the same column, one height for letters in the same row. Each letter also
+    keeps `gap` points clear of its panel's title. Placed after the layout is fixed, from each
+    axis's drawn extent, so they never collide with tick or axis labels at any figure width.
     """
     pairs = list(axes_and_letters)
     if not pairs:
@@ -154,19 +155,29 @@ def label_panels(axes_and_letters, gap=4, align_tolerance=0.1):
                                  ax.bbox.x0 + 1, 1).transformed(to_figure).x0
         top = ax.get_position().y1
         holder = ax.get_figure()
-        if holder is not figure and getattr(holder, "_suptitle", None) is not None:
-            top = holder._suptitle.get_window_extent(renderer).transformed(to_figure).y1
-        elif ax.get_title():
+        if ax.get_title():
             title = ax.title.get_window_extent(renderer).transformed(to_figure)
             top = title.y1
             left = min(left, title.x0 - gap - width)    # keep clear of the title
+        elif holder is not figure and getattr(holder, "_suptitle", None) is not None:
+            top = holder._suptitle.get_window_extent(renderer).transformed(to_figure).y1
         letters.append(text)
         lefts.append(max(left, margin))
-        tops.append(top)
+        tops.append(top + lift / 72 / figure.get_size_inches()[1])
 
     def aligned(values, pick):
-        return [pick(other for other in values if abs(other - value) < align_tolerance)
-                for value in values]
+        """Each value replaced by pick() of its group: values chained within the tolerance."""
+        order = sorted(range(len(values)), key=values.__getitem__)
+        groups, result = [[order[0]]], list(values)
+        for previous, index in zip(order, order[1:]):
+            if values[index] - values[previous] < align_tolerance:
+                groups[-1].append(index)
+            else:
+                groups.append([index])
+        for group in groups:
+            for index in group:
+                result[index] = pick(values[member] for member in group)
+        return result
 
     for text, x, y in zip(letters, aligned(lefts, min), aligned(tops, max)):
         text.set_position((x, y))
