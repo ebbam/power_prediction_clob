@@ -30,10 +30,9 @@ Figures are saved to `figures/` as PDF and PNG:
 | Manuscript figure | Output file(s) |
 |---|---|
 | Figure 1 | `figure1_clob` |
-| Figure 2 | `figure2`, `figure2e` |
-| Figure 3 (panels A–C; panels D–E use `theory_checks/figdata_AB.json`) | `figure3b`, `figure3b_theory` |
-| Figure 4 (whale against herding bettors) | `figure4_whale_herding` |
-| Stylised mechanisms | `stylised_mechanisms_clob` |
+| Figure 2 (histogram and box-plot versions) | `figure2`, `figure2_boxplots`, `figure2e` |
+| Figure 3 | `figure3b`, `figure3b_theory` |
+| Figure 4 (stylised mechanisms, without and with the stubbornness lag panel) | `stylised_mechanisms_clob`, `stylised_mechanisms_clob_lag` |
 
 ### Files needed
 
@@ -48,8 +47,6 @@ Figures are saved to `figures/` as PDF and PNG:
 | `metrics.py` | Distortion and convergence measures, and their plots |
 | `figure_style.py` | Shared figure style, colour palette and saving |
 | `experiments/whale_convergence_experiment.py` | Whale settings, fundamental paths and populations used by Figure 2 |
-
-Figure 3 D–E also needs the theory results in `theory_checks/` (see below).
 
 ## Other folders
 

@@ -24,6 +24,9 @@ market model can supply: the price path, the fundamental path and the shock time
         Total persistence, counting gradual onsets and repeated episodes. About
         1 - quantile in undisturbed runs, by construction.
 
+    P4  Steady-state error   S = mean |price - fundamental| over the last `tail` periods
+        How far the price settles from the fundamental once the shock has played out.
+
 Timing reversion from the maximum, not the shock, stops a gradual shock (one that leaves
 the price inside the band for its first few periods) from counting as an instant recovery.
 
@@ -45,6 +48,7 @@ from matplotlib.ticker import PercentFormatter
 
 DEFAULT_WINDOW = 5
 DEFAULT_BAND_QUANTILE = 0.95
+STEADY_STATE_TAIL = 50
 MIN_AT_RISK = 5
 GROUP_COLORS = ("#222222", "#0072B2", "#D55E00", "#CC79A7", "#009E73", "#E69F00")
 
@@ -120,6 +124,15 @@ def first_sustained(mask, window, start=0):
     return None
 
 
+def steady_state_error(prices, fundamentals, tail=STEADY_STATE_TAIL):
+    """P4 for one run (see module docstring); missing prices carry the last quote forward."""
+    prices = pd.Series(np.asarray(prices, dtype=float)).ffill().to_numpy()
+    fundamentals = np.asarray(fundamentals, dtype=float)
+    if prices.shape != fundamentals.shape or len(prices) < tail:
+        raise ValueError("Prices and fundamentals must be equal length, at least `tail` long")
+    return float(np.nanmean(np.abs(prices[-tail:] - fundamentals[-tail:])))
+
+
 def normalised_pull(prices, fundamentals, target, shock_time):
     """P1b for one run (see module docstring); missing prices carry the last quote forward."""
     prices = pd.Series(np.asarray(prices, dtype=float)).ffill().to_numpy()[shock_time:]
@@ -166,6 +179,19 @@ def plot_normalised_pull(metrics, group="group", ax=None, title=None, palette=No
     for reference in (0, 1):
         ax.axvline(reference, color="#BBBBBB", linewidth=0.8)
     return ax
+
+
+def plot_steady_state_error(metrics, group="group", ax=None, title=None, palette=None,
+                            layout="overlay", row_labels=True):
+    """P4: distribution of the steady-state error across runs, by group."""
+    upper = 0.05 * np.ceil(metrics["steady_state_error"].max() / 0.05 + 1)
+    return _plot_distribution(
+        metrics, "steady_state_error", group, ax, palette=palette,
+        xlabel="Steady-state error (probability points)",
+        title=title or "P4: Steady-state error",
+        label_format=lambda value: f"{value:.2f}",
+        limits=(0, upper), layout=layout, row_labels=row_labels,
+    )
 
 
 def plot_time_outside_band(metrics, group="group", ax=None, title=None,
@@ -221,7 +247,7 @@ def _plot_distribution(metrics, column, group, ax, xlabel, title, label_format, 
 
     ax.set(xlim=limits, xlabel=xlabel, ylabel="Runs")
     ax.set_title(title)
-    ax.legend(frameon=False, loc="upper right", title=group)
+    ax.legend(loc="upper right", title=group)
     _style(ax)
     return ax
 
@@ -269,7 +295,7 @@ def _plot_ridges(metrics, column, group, ax, xlabel, title, label_format, limits
     for side in ("top", "right", "left"):
         ax.spines[side].set_visible(False)
     if show_band:
-        ax.legend(frameon=False, loc="upper right")
+        ax.legend(loc="upper right")
     return ax
 
 
@@ -442,7 +468,7 @@ def plot_reversion_time(metrics, group="group", ax=None, title=None, min_at_risk
     ax.set_title(title or "P2: Market error reversion time")
     ax.text(0.01, 0.99, f"Curves end when fewer than {min_at_risk} runs remain",
             transform=ax.transAxes, va="top", color="#555555")
-    ax.legend(frameon=False, loc="lower right")
+    ax.legend(loc="lower right")
     _style(ax)
     return ax
 
