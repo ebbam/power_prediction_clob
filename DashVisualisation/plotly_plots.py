@@ -12,12 +12,17 @@ WHALE_ORDER_COLOUR = "#1a1a19"
 
 
 def add_whale_entry(fig, period, **legend):
-    """Mark the period the whale enters with a vertical line and a legend entry."""
+    """
+    Mark the period the whale enters with a full-height vertical line, drawn as a series on its
+    own hidden 0-1 axis: it shows from the first render, leaves the y-range alone, and its
+    legend entry hides and shows it.
+    """
     if period is None:
         return fig
-    line = dict(color=WHALE_ENTRY_COLOUR, width=2)
-    fig.add_vline(x=period, line=line)
-    fig.add_trace(go.Scatter(x=[None], y=[None], mode="lines", line=line, name="Whale enters", **legend))
+    fig.add_trace(go.Scatter(x=[period, period], y=[0, 1], mode="lines", yaxis="y9",
+                             line=dict(color=WHALE_ENTRY_COLOUR, width=2), name="Whale enters",
+                             hoverinfo="skip", **legend))
+    fig.update_layout(yaxis9=dict(overlaying="y", range=[0, 1], visible=False, fixedrange=True))
     return fig
 
 
