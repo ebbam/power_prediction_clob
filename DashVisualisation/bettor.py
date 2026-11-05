@@ -186,7 +186,8 @@ def run_market_lob(bettors, n_periods, fundamentals, initial_price, tick=0.01, t
     price carried between periods: "mid" (OrderBook.mid, with its fallbacks) or "last" (the
     last trade). Per-period series (length n_periods) are returned alongside the reference
     price and belief series (length n_periods + 1). The recorded midquote is NaN whenever one
-    side of the book is empty.
+    side of the book is empty; whale_contracts is the whales' net YES position after each
+    period (negative when they are short, i.e. hold NO).
     """
     if rng is None:
         rng = np.random.default_rng()
@@ -264,6 +265,7 @@ def run_market_lob(bettors, n_periods, fundamentals, initial_price, tick=0.01, t
         assert sum(b.n_contracts for b in bettors) == total_contracts, "contracts not conserved"
         assert np.isclose(sum(b.budget for b in bettors), total_cash), "cash not conserved"
         assert min(b.worst_case_wealth() for b in bettors) >= -1e-9, "uncollateralised position"
+        snapshot["whale_contracts"] = sum(b.n_contracts for b in bettors if b.whale)
         for key, value in {**period, **snapshot}.items():
             history[key].append(value)
 
