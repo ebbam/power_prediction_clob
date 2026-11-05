@@ -7,14 +7,15 @@ import plotly.graph_objects as go
 # in period t are beliefs[t], and the true outcome they learn about after period t is fundamental[t].
 
 
-WHALE_ENTRY_COLOUR = "#ff8c00"      # orange is kept for the whale's entry alone
+WHALE_ENTRY_COLOUR = "#00a6b8"      # cyan-teal, used for nothing else
+WHALE_ORDER_COLOUR = "#1a1a19"
 
 
 def add_whale_entry(fig, period, **legend):
-    """Mark the period the whale enters with a thick orange vertical line and a legend entry."""
+    """Mark the period the whale enters with a vertical line and a legend entry."""
     if period is None:
         return fig
-    line = dict(color=WHALE_ENTRY_COLOUR, width=4)
+    line = dict(color=WHALE_ENTRY_COLOUR, width=2)
     fig.add_vline(x=period, line=line)
     fig.add_trace(go.Scatter(x=[None], y=[None], mode="lines", line=line, name="Whale enters", **legend))
     return fig
@@ -127,7 +128,9 @@ def plot_capital_locked(rec, market_cash, whale_start=None):
     Capital locked in open contracts as a share of the money in the market, as at the bottom
     of manuscript Figure 2C. Each contract locks $1: its price p from the YES holder and
     1 - p from the NO holder. The whale's YES (bought) and NO (sold) holdings are drawn
-    separately from everyone else's. market_cash is the money in the market each period.
+    separately from everyone else's, and the size of the order the whale places each period
+    on a second axis, so a large order can be seen filling gradually. market_cash is the
+    money in the market each period.
     """
     t = _periods(rec)
     T = len(t)
@@ -146,9 +149,16 @@ def plot_capital_locked(rec, market_cash, whale_start=None):
         fig.add_trace(go.Scatter(x=t, y=100 * stake / market_cash, mode="lines", stackgroup="capital",
                                  line=dict(width=0, shape="hv"), fillcolor=CAPITAL_COLOURS[name],
                                  name=name))
+    if whale_start is not None:
+        order = np.abs(np.asarray(rec["whale_order_size"], dtype=float))
+        fig.add_trace(go.Scatter(x=t, y=np.where(t >= whale_start, order, np.nan), mode="lines",
+                                 line=dict(color=WHALE_ORDER_COLOUR, width=1.5, shape="hv"),
+                                 name="Whale order size (right axis)", yaxis="y2"))
     add_whale_entry(fig, whale_start)
     fig.update_layout(title="Capital locked in open contracts", xaxis_title="Period",
                       yaxis=dict(title="% of capital in the market", rangemode="tozero"),
+                      yaxis2=dict(title="Whale order (contracts)", overlaying="y", side="right",
+                                  rangemode="tozero", showgrid=False),
                       legend=dict(x=0, y=-0.2, orientation="h"), height=400,
                       margin=dict(t=40, b=20), template="plotly_white")
     return fig
