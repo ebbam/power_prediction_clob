@@ -426,6 +426,14 @@ def parallel_map(function, *iterables):
         return list(pool.map(function, *iterables, chunksize=8))
 
 
+def legend_below(holder, ax, **legend):
+    """Move ax's legend under holder (a figure or subfigure). An "outside lower center" legend is
+    always given room by the constrained layout, unlike one placed below the axis by hand."""
+    handles, labels = ax.get_legend_handles_labels()
+    ax.get_legend().remove()
+    holder.legend(handles, labels, loc="outside lower center", **legend)
+
+
 def group_legend_entries(axes):
     """Legend handles of axes[0] by group name (per-panel medians dropped, the band renamed);
     removes every axis's own legend."""
