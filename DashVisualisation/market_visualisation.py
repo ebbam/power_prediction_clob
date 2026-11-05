@@ -13,7 +13,8 @@ from dash import dcc, html
 from dash.dependencies import Input, Output
 
 from bettor import Bettor, add_whale, fundamental_path, run_market_lob   # copy of ../bettor.py
-from plotly_plots import joint_plot, plot_hist, plot_market_error, plot_market_price, plot_trading_activity
+from plotly_plots import (joint_plot, plot_capital_locked, plot_hist, plot_market_error, plot_market_price,
+                          plot_trading_activity)
 from processing_data import sample_parameters
 
 # Default simulation parameters (editable in the "Simulation parameters" panel)
@@ -96,13 +97,15 @@ app.layout = dbc.Container([
         dbc.Row([dcc.Graph(id="market_price_plot")]),
         dbc.Row([dcc.Graph(id="market_error_plot")]),
         dbc.Row([dcc.Graph(id="trading_activity_plot")]),
+        dbc.Row([dcc.Graph(id="capital_locked_plot")]),
     ]),
 ])
 
 
 @app.callback(
     [Output("hist_plot_1", "figure"), Output("hist_plot_2", "figure"), Output("joint_plot", "figure"),
-     Output("market_price_plot", "figure"), Output("market_error_plot", "figure"), Output("trading_activity_plot", "figure")],
+     Output("market_price_plot", "figure"), Output("market_error_plot", "figure"), Output("trading_activity_plot", "figure"),
+     Output("capital_locked_plot", "figure")],
     [Input("var_1", "value"), Input("var_2", "value"), Input("correlation", "value"),
      Input("budget_mean", "value"), Input("budget_sd", "value"),
      Input("risk_av_mean", "value"), Input("risk_av_sd", "value"),
@@ -158,15 +161,20 @@ def update_plots(var_1, var_2, correlation, budget_mean, budget_sd, risk_av_mean
 
     whale_start = int(np.clip(whale_start or 0, 0, t_election - 1))
     fundamentals = fundamental_path(initial_price, t_election, outcome_uncertainty)
-    add_whale(bettors, whale_share, whale_valuation, entry_time=whale_start)
+    ordinary_cash = sum(b.budget for b in bettors)
+    whale = add_whale(bettors, whale_share, whale_valuation, entry_time=whale_start)
     market_record = run_market_lob(bettors, t_election, fundamentals, initial_price, rng=rng,
                                    max_markup=max_markup, ttl=ttl)
 
-    has_whale = whale_share > 0
-    fig_market_price = plot_market_price(market_record, whale_valuation if has_whale else None,
-                                         whale_start if has_whale else None)
+    whale_entry = whale_start if whale is not None else None
+    fig_market_price = plot_market_price(market_record, whale_valuation if whale is not None else None,
+                                         whale_entry)
+    # Money in the market each period: the whale's cash counts from the period it enters.
+    market_cash = ordinary_cash + (whale.initial_budget * (np.arange(t_election) >= whale_start)
+                                   if whale is not None else 0)
     return (fig_hist_1, fig_hist_2, fig_joint, fig_market_price,
-            plot_market_error(market_record), plot_trading_activity(market_record))
+            plot_market_error(market_record, whale_entry), plot_trading_activity(market_record, whale_entry),
+            plot_capital_locked(market_record, market_cash, whale_entry))
 
 
 if __name__ == "__main__":

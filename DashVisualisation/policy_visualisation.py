@@ -19,13 +19,14 @@ from dash import dcc, html
 from dash.dependencies import Input, Output, State
 
 import policy_simulation as sim
+from plotly_plots import add_whale_entry
 
 # Number inputs use step="any": the browser treats a value off the step grid (e.g. 2000 with min=1, step=100)
 # as invalid, and Dash then passes None, which would silently mean "no target" or "no limit".
 
 N_ITER = 12                      # runs per market: all three markets take about 8 s on 4 cores
 EXPECTED_CAPITAL = 550.0 * sim.N_BETTORS    # ordinary bettors' expected total budget, U(100, 1000) each
-COLOURS = {"No whale": "#52514e", "No limit": "#eb6834", "With limit": "#0d6efd"}
+COLOURS = {"No whale": "#52514e", "No limit": "#b22222", "With limit": "#0d6efd"}   # orange: whale entry
 PLOT_ORDER = ["No whale", "With limit", "No limit"]
 NOISE_GREY = "rgba(82,81,78,0.12)"
 # Plotly's "plotly_white" look, set explicitly so the figures are white whatever template Plotly applies
@@ -147,8 +148,7 @@ def error_path_figure(scenarios, band):
         fig.add_trace(go.Scatter(x=[sim.BASELINE, t[-1]], y=[result["benchmark"]] * 2, mode="lines",
                                  line=dict(color=colour, dash="dash", width=2), name=f"{name}: theory",
                                  legendrank=len(scenarios) + rank))
-    fig.add_vline(x=sim.BASELINE, line=dict(color="#52514e", dash="dot", width=1.5),
-                  annotation_text="Whale enters", annotation_position="top right")
+    add_whale_entry(fig, sim.BASELINE, legendrank=2 * len(scenarios))
     fig = layout(fig, "Market price error over time<br><sup>Shading: 10th–90th percentile of runs. "
                        "Grey band: ordinary noise before the whale enters.</sup>",
                   "Period", "Market price − true probability", height=520, legend_width=1 / 3.2)
@@ -212,6 +212,7 @@ def position_figure(scenarios, limit):
     if limit is not None:
         fig.add_hline(y=limit, line=dict(color=COLOURS["With limit"], dash="dot", width=1.5),
                       annotation_text="Position limit", annotation_position="top right")
+    add_whale_entry(fig, sim.BASELINE)
     fig = layout(fig, "Whale's position over time<br><sup>Median run.</sup>", "Period", "Contracts held",
                  height=460, legend_width=0.5, legend_below=True)
     fig.update_yaxes(rangemode="tozero")

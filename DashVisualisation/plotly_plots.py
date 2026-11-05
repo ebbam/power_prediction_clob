@@ -7,6 +7,19 @@ import plotly.graph_objects as go
 # in period t are beliefs[t], and the true outcome they learn about after period t is fundamental[t].
 
 
+WHALE_ENTRY_COLOUR = "#ff8c00"      # orange is kept for the whale's entry alone
+
+
+def add_whale_entry(fig, period, **legend):
+    """Mark the period the whale enters with a thick orange vertical line and a legend entry."""
+    if period is None:
+        return fig
+    line = dict(color=WHALE_ENTRY_COLOUR, width=4)
+    fig.add_vline(x=period, line=line)
+    fig.add_trace(go.Scatter(x=[None], y=[None], mode="lines", line=line, name="Whale enters", **legend))
+    return fig
+
+
 def _periods(rec):
     return np.arange(len(rec["best_bid"]))
 
@@ -62,8 +75,7 @@ def plot_market_price(rec, whale_valuation=None, whale_start=None):
     if whale_valuation is not None:
         fig.add_hline(y=whale_valuation, line=dict(color="#52514e", dash="dot", width=1),
                       annotation_text="Whale valuation", annotation_position="top left")
-        fig.add_vline(x=whale_start, line=dict(color="#52514e", dash="dot", width=1),
-                      annotation_text="Whale enters", annotation_position="bottom right")
+    add_whale_entry(fig, whale_start)
     fig.update_layout(title="Market price and order book", xaxis_title="Period",
                       yaxis=dict(title="Price / probability", range=[0, 1.02]),
                       legend=dict(x=0, y=-0.2, orientation="h"), height=550,
@@ -71,7 +83,7 @@ def plot_market_price(rec, whale_valuation=None, whale_start=None):
     return fig
 
 
-def plot_market_error(rec):
+def plot_market_error(rec, whale_start=None):
     t = _periods(rec)
     error = market_error(rec)
     fig = go.Figure()
@@ -79,23 +91,65 @@ def plot_market_error(rec):
                              fill="tozeroy", fillcolor="rgba(82,81,78,0.15)", name="Cumulative error"))
     fig.add_trace(go.Scatter(x=t, y=error, mode="lines", line=dict(color="#e34948", shape="hv"),
                              fill="tozeroy", fillcolor="rgba(227,73,72,0.35)", name="Error"))
+    add_whale_entry(fig, whale_start)
     fig.update_layout(title="Market price minus election outcome", xaxis_title="Period",
                       yaxis=dict(title="Error"), legend=dict(x=0, y=-0.3, orientation="h"), height=320,
                       margin=dict(t=40, b=20), template="plotly_white")
     return fig
 
 
-def plot_trading_activity(rec):
+def plot_trading_activity(rec, whale_start=None):
     t = _periods(rec)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=t, y=rec["submitted_buy_volume"], mode="lines",
-                             line=dict(color="#2a78d6", dash="dot", shape="hv"), name="Submitted buy orders"))
+                             line=dict(color="#2a78d6", shape="hv"), name="Submitted buy orders"))
     fig.add_trace(go.Scatter(x=t, y=rec["submitted_sell_volume"], mode="lines",
-                             line=dict(color="#eb6834", dash="dot", shape="hv"), name="Submitted sell orders"))
+                             line=dict(color="#b22222", shape="hv"), name="Submitted sell orders"))
     fig.add_trace(go.Scatter(x=t, y=rec["traded_volume"], mode="lines",
                              line=dict(color="black", shape="hv"), name="Executed volume"))
+    add_whale_entry(fig, whale_start)
     fig.update_layout(title="Order flow (contracts per period)", xaxis_title="Period",
                       yaxis=dict(title="Contracts"), legend=dict(x=0, y=-0.2, orientation="h"), height=400,
+                      margin=dict(t=40, b=20), template="plotly_white")
+    return fig
+
+
+CAPITAL_COLOURS = {                 # light: everyone else; dark: the whale's share of that side
+    "Yes contracts": "#9fd8b5",
+    "Whale buys (Yes)": "#1f7a4d",
+    "No contracts": "#f4b0a8",
+    "Whale sells (No)": "#a8322d",
+}
+
+
+def plot_capital_locked(rec, market_cash, whale_start=None):
+    """
+    Capital locked in open contracts as a share of the money in the market, as at the bottom
+    of manuscript Figure 2C. Each contract locks $1: its price p from the YES holder and
+    1 - p from the NO holder. The whale's YES (bought) and NO (sold) holdings are drawn
+    separately from everyone else's. market_cash is the money in the market each period.
+    """
+    t = _periods(rec)
+    T = len(t)
+    open_interest = np.asarray(rec["vol_history"][1:T + 1], dtype=float) / 2
+    price = np.asarray(rec["price_history"][1:T + 1], dtype=float)
+    whale = np.asarray(rec["whale_contracts"], dtype=float)
+    whale_yes, whale_no = np.maximum(whale, 0), np.maximum(-whale, 0)
+    stakes = {
+        "Yes contracts": (open_interest - whale_yes) * price,
+        "Whale buys (Yes)": whale_yes * price,
+        "No contracts": (open_interest - whale_no) * (1 - price),
+        "Whale sells (No)": whale_no * (1 - price),
+    }
+    fig = go.Figure()
+    for name, stake in stakes.items():
+        fig.add_trace(go.Scatter(x=t, y=100 * stake / market_cash, mode="lines", stackgroup="capital",
+                                 line=dict(width=0, shape="hv"), fillcolor=CAPITAL_COLOURS[name],
+                                 name=name))
+    add_whale_entry(fig, whale_start)
+    fig.update_layout(title="Capital locked in open contracts", xaxis_title="Period",
+                      yaxis=dict(title="% of capital in the market", rangemode="tozero"),
+                      legend=dict(x=0, y=-0.2, orientation="h"), height=400,
                       margin=dict(t=40, b=20), template="plotly_white")
     return fig
 
