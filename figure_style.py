@@ -15,7 +15,7 @@ from matplotlib.text import Text
 from matplotlib.transforms import Bbox
 
 
-PAGE_WIDTH = 7.0          # inches; full text width (~178 mm), for Figure 1
+PAGE_WIDTH = 7.0          # inches; full text width (~178 mm)
 COLUMN_WIDTH = 3.4        # inches; one column (~86 mm), for the half-page figures
 WIDTHS = {PAGE_WIDTH, COLUMN_WIDTH}
 
@@ -51,6 +51,13 @@ def apply():
         "ytick.labelsize": SMALL,
         "legend.fontsize": SMALL,
         "legend.title_fontsize": SMALL,
+        # One legend style everywhere: a thin grey square frame on white.
+        "legend.frameon": True,
+        "legend.fancybox": False,
+        "legend.framealpha": 1.0,
+        "legend.edgecolor": "#BBBBBB",
+        "legend.handlelength": 1.4,
+        "legend.columnspacing": 1.0,
         "figure.titlesize": TITLE,
         "axes.linewidth": 0.6,
         "lines.linewidth": 1.0,
@@ -116,11 +123,14 @@ def save(figure, path_without_suffix, name):
     figure.savefig(f"{path_without_suffix}.png", dpi=300)
 
 
-def label_panels(axes_and_letters):
-    """Panel letters at the left edge of each panel's labels, level with its title.
+def label_panels(axes_and_letters, gap=4, align_tolerance=0.1):
+    """Bold panel letters level with each panel's title, at the left edge of its labels.
 
-    Placed after the layout is fixed, from each axis's drawn extent, so they never collide
-    with tick or axis labels at any figure width.
+    Letters whose positions are within align_tolerance (a share of the figure's width or
+    height) are aligned: one x for letters in the same column, one height for letters in the
+    same row. Each letter also keeps `gap` points clear of its panel's title. Placed after
+    the layout is fixed, from each axis's drawn extent, so they never collide with tick or
+    axis labels at any figure width.
     """
     pairs = list(axes_and_letters)
     if not pairs:
@@ -130,20 +140,36 @@ def label_panels(axes_and_letters):
         warnings.simplefilter("error")       # a collapsed layout must not pass silently
         figure.canvas.draw()
     renderer = figure.canvas.get_renderer()
+    to_figure = figure.transFigure.inverted()
+    gap = gap / 72 / figure.get_size_inches()[0]       # points -> share of figure width
+    margin = 0.01
+
+    letters, lefts, tops = [], [], []
     for ax, letter in pairs:
+        text = figure.text(0, 0, letter, fontsize=PANEL, fontweight="bold", ha="left", va="top")
+        width = text.get_window_extent(renderer).transformed(to_figure).width
         # Left edge of the axis and its y-axis labels (not legends, which can be wider).
         yaxis = ax.yaxis.get_tightbbox(renderer)       # None when the y-axis has no labels
-        left = min(ax.bbox.x0, yaxis.x0) if yaxis is not None else ax.bbox.x0
-        box = Bbox.from_extents(left, 0, left + 1, 1).transformed(
-            figure.transFigure.inverted())
+        left = Bbox.from_extents(min(ax.bbox.x0, yaxis.x0) if yaxis else ax.bbox.x0, 0,
+                                 ax.bbox.x0 + 1, 1).transformed(to_figure).x0
         top = ax.get_position().y1
         holder = ax.get_figure()
         if holder is not figure and getattr(holder, "_suptitle", None) is not None:
-            top = holder._suptitle.get_window_extent(renderer).transformed(
-                figure.transFigure.inverted()).y1
+            top = holder._suptitle.get_window_extent(renderer).transformed(to_figure).y1
         elif ax.get_title():
-            top = ax.title.get_window_extent(renderer).transformed(
-                figure.transFigure.inverted()).y1
-        figure.text(box.x0, top, letter, fontsize=PANEL, fontweight="bold",
-                    ha="left", va="top")
+            title = ax.title.get_window_extent(renderer).transformed(to_figure)
+            top = title.y1
+            left = min(left, title.x0 - gap - width)    # keep clear of the title
+        letters.append(text)
+        lefts.append(max(left, margin))
+        tops.append(top)
+
+    def aligned(values, pick):
+        return [pick(other for other in values if abs(other - value) < align_tolerance)
+                for value in values]
+
+    for text, x, y in zip(letters, aligned(lefts, min), aligned(tops, max)):
+        text.set_position((x, y))
     figure.set_layout_engine("none")      # keep the measured positions when saving
+
+

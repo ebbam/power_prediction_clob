@@ -6,8 +6,8 @@ how the bettor parameters shape an agent's decisions.
        reservation price (bettor.limit_order, which sizes orders with bettor.trade);
        bottom, how its reservation price moves once it holds a position
        (bettor.reservation_price).
-    B  Stubbornness: belief updating toward a noisy signal of the true outcome eta_t,
-       starting from V_i,0 = 0.1 (the update in bettor.update_belief).
+    B  Stubbornness: the expected belief path from V_i,0 = 0.1 toward the true outcome eta_t
+       under the update in Bettor.update_belief, V_t = eta + (V_0 - eta) s^t.
     C  Expertise and bias: distribution of the signals a bettor receives about eta_t = 0.5.
 
 Rebuilt from mechanism_experiment_plots.ipynb (power_prediction repo, scratch_plots branch,
@@ -75,7 +75,7 @@ def plot_order_size(ax):
     (drawn as the continuous optimum; the model rounds it to whole contracts)."""
     prices = np.linspace(VALUATION - MAX_MARKUP, VALUATION + MAX_MARKUP, 201)
     # Only two quadrants occur: buy orders below V_i and sell orders above it.
-    top = BUDGET * 1.05
+    top = BUDGET * 1.15
     ax.fill_between([VALUATION - MAX_MARKUP, VALUATION], 0, top, color=role_color("buy"), alpha=0.2,
                     linewidth=0)
     ax.fill_between([VALUATION, VALUATION + MAX_MARKUP], -top, 0, color=role_color("sell"), alpha=0.25,
@@ -90,7 +90,7 @@ def plot_order_size(ax):
             ha="left", va="bottom")
     ax.text(VALUATION - 0.001, -BUDGET * 0.5, r"$V_i$", ha="right", va="center")
     ax.set(xlim=(VALUATION - MAX_MARKUP, VALUATION + MAX_MARKUP),
-           ylim=(-BUDGET * 1.05, BUDGET * 1.05), xlabel="Limit Price",
+           ylim=(-BUDGET * 1.15, BUDGET * 1.15), xlabel="Limit Price",
            ylabel="Order Size (+ buy, − sell)", title="Order Size at Each Limit Price")
 
 
@@ -115,23 +115,20 @@ def plot_reservation(ax):
            title="Reservation Price by Position Held")
 
 
-def plot_stubbornness(ax, rng):
-    signals = rng.normal(TRUE_VALUE, 1 - SIGNAL_EXPERTISE, N_STEPS)
-    ax.plot(range(1, N_STEPS + 1), np.clip(signals, 0, 1), color="gray", alpha=0.6,
-            linewidth=2)
-    for color, s in zip(role_color("levels"), STUBBORNNESS):
-        beliefs = [INITIAL_BELIEF]
-        for signal in signals:
-            beliefs.append(np.clip(s * beliefs[-1] + (1 - s) * signal, 0, 1))
-        ax.plot(range(N_STEPS + 1), beliefs, color=color, label=f"{s}")
+def plot_stubbornness(ax):
+    """Expected belief path for each stubbornness s: with unbiased signals, the belief closes a
+    share 1 - s of its gap to the true outcome every step."""
+    steps = np.arange(N_STEPS + 1)
+    for line_color, s in zip(role_color("levels"), STUBBORNNESS):
+        ax.plot(steps, TRUE_VALUE + (INITIAL_BELIEF - TRUE_VALUE) * s ** steps,
+                color=line_color, label=f"{s}")
     ax.axhline(TRUE_VALUE, color="gray", linestyle="--")
     ax.axhline(INITIAL_BELIEF, color="gray", linestyle=":")
     label_right(ax, TRUE_VALUE, r"$\eta_t$")
     label_right(ax, INITIAL_BELIEF, r"$V_{i,0}$")
-    ax.set(xlim=(0, N_STEPS), ylim=(0, 0.9), xlabel="Time step", ylabel="Market Valuation",
+    ax.set(xlim=(0, N_STEPS), ylim=(0, 0.6), xlabel="Time step", ylabel="Market Valuation",
            title="Stubbornness: Belief Updating")
-    ax.legend(title="Stubbornness", loc="upper center", bbox_to_anchor=(0.5, -0.22), ncols=5,
-              frameon=False, handlelength=1.2, columnspacing=0.8)
+    ax.legend(title="Stubbornness", loc="upper center", bbox_to_anchor=(0.5, -0.22), ncols=5)
 
 
 def plot_signals(ax, rng):
@@ -154,4 +151,4 @@ def plot_signals(ax, rng):
     handles = [plt.Rectangle((0, 0), 1, 1, facecolor=c, edgecolor="#333333")
                for c in role_color("bias")]
     ax.legend(handles, ["−0.1", "0", "+0.1"], title="Bias", loc="upper center",
-              bbox_to_anchor=(0.5, -0.22), ncols=3, frameon=False, handlelength=1.2)
+              bbox_to_anchor=(0.5, -0.22), ncols=3)
