@@ -44,7 +44,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import LinearSegmentedColormap, Normalize
-from matplotlib.ticker import FuncFormatter, PercentFormatter
+from matplotlib.ticker import FuncFormatter, MaxNLocator, PercentFormatter
 
 from bettor import Bettor, add_whale, fundamental_path, run_market_lob
 from metrics import (
@@ -354,6 +354,30 @@ def plot_lag_column(sweep, parameter, ax):
                     linewidth=0)
     ax.set(xlabel=parameter, ylabel="Best-matching lag", ylim=(-0.5, MAX_LAG + 0.5),
            yticks=range(MAX_LAG + 1))
+
+
+SWEEP_MEASURES = {          # Figure 2's sweep measures and their titles
+    "mse": "Mean Squared Error",
+    "cross_correlation": "Max Cross-Corr.",
+    "lag": "Best-Matching Lag",
+    "delay": "Response Delay",
+}
+
+
+def plot_sweep_measure(sweep, parameter, measure, ax):
+    """One sweep panel of Figure 2: a measure (a key of SWEEP_MEASURES) against parameter."""
+    if measure == "lag":
+        plot_lag_column(sweep, parameter, ax)
+        ax.set_ylabel("")
+    elif measure == "delay":
+        plot_sweep_column(sweep, parameter, "response_delay", "", ax)
+        ax.set_ylim(bottom=-0.2)
+    elif measure == "cross_correlation":
+        plot_sweep_column(sweep, parameter, "peak_cross_correlation", "", ax)
+        ax.set_ylim(top=1)
+    else:
+        plot_sweep_column(sweep, parameter, "mse", "", ax)
+    ax.xaxis.set_major_locator(MaxNLocator(3))
 
 
 def plot_sweep_column(sweep, parameter, column, ylabel, ax):
