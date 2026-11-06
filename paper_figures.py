@@ -136,7 +136,7 @@ COLORS = {
     "bid_ask": "steel", "outcome": "crimson",                  # Figure 2A
     "mean_valuation": "violet",                               # Figure 2A
     "volume": "indigo", "yes": "green", "no": "ruby",         # Figure 2C
-    "sweep_line": "ruby", "sweep_point": "steel",             # Figure 2B
+    "sweep_line": "crimson", "sweep_point": "steel",          # Figure 2B, as h = 0.5 and 0.75 in Figure 4
 }
 
 
