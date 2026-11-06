@@ -499,7 +499,7 @@ def build_figure(args):
     ], ncol=1)
 
     axd.axhline(0, color=INK, lw=.8, ls='--', label='Initial share')
-    axd.set(xlabel='Period', ylabel=r'$100(\rho_t-\rho_0)$ (pp)',
+    axd.set(xlabel='Period', ylabel=r'$100(\rho_t-\rho_0)$',
             xlim=(0, args.steps-1))
     # The dashed zero line marks the initial whale wealth share.
     legend_below(axd, [
@@ -856,7 +856,7 @@ def main():
                         help='Compatibility flag: historical summary files are no longer used')
     parser.set_defaults(use_existing=False)
     parser.add_argument('--jobs', type=int, default=4, help='Concurrent independent simulations')
-    parser.add_argument('--output', default='fig_theory_assumptions_6panel_fixed_theory_target.png')
+    parser.add_argument('--output', default='fig_theory_assumptions.png')
     args = parser.parse_args()
     requested_h = np.asarray(args.herding, dtype=float)
     if not np.isfinite(requested_h).all() or np.any(requested_h < 0) or np.any(requested_h > .9):
