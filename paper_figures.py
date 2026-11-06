@@ -286,8 +286,8 @@ def plot_market_price(record, ax):
     lines = (
         (record["fundamental"][:n_periods], "Election outcome",
          dict(color=role_color("outcome"), linewidth=1.0)),
-        (record["beliefs"][:n_periods], "Mean valuation",
-         dict(color=role_color("mean_valuation"), linewidth=1.0, linestyle=":")),
+        # (record["beliefs"][:n_periods], "Mean valuation",
+        #  dict(color=role_color("mean_valuation"), linewidth=1.0, linestyle=":")),
         (record["price_history"][1:n_periods + 1], "Market price",
          dict(color="black", linewidth=0.7)),
     )
