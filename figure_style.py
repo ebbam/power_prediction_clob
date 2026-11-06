@@ -30,10 +30,6 @@ PALETTE = {
     "lavender": "#CC99FF", "navy": "#000080", "green": "#339966", "orange": "#F4A261",
     "ruby": "#B22222", "violet": "#6A4C93", "indigo": "#1D3557", "teal": "#2A9D8F",
     "steel": "#457B9D", "amber": "#FFB347", "crimson": "#E63946",
-    # Further colours used by single figures.
-    "lilac": "#B788E5", "sky": "#1E90FF", "tangerine": "#FF8C00", "royal": "#4169E1",
-    "aqua": "#20B2AA", "slate": "#6A5ACD", "plum": "#8E3B8E", "gold": "#FFA500",
-    "deep_plum": "#5B1F7A", "burnt": "#C45A00",
 }
 
 

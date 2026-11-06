@@ -24,9 +24,10 @@ style.apply()
 
 # Colours by role, as names in figure_style.PALETTE (looked up when a figure is drawn).
 COLORS = {
+    # The colours of Figure 3's whale shares, so the figures read as one set.
     "levels": ("lavender", "navy", "green", "orange", "ruby"),   # one per parameter value
-    "bias": ("royal", "aqua", "slate"),
-    "buy": "gold", "sell": "plum", "buy_label": "burnt", "sell_label": "deep_plum",
+    "bias": ("navy", "green", "orange"),
+    "buy": "green", "sell": "ruby",                     # as Yes and No contracts in Figure 2
 }
 
 
@@ -38,6 +39,7 @@ def role_color(role):
 RISK_AVERSIONS = [0.1, 0.25, 0.5, 0.75, 0.9]
 STUBBORNNESS = [0.1, 0.25, 0.5, 0.75, 0.9]
 EXPERTISE = [0.0, 0.2, 0.4, 0.6, 0.8, 0.9, 1.0]
+BOX_ALPHA = 0.75          # box fill, as in Figure 3C
 BIASES = [-0.1, 0.0, 0.1]
 VALUATION = 0.5          # V_i in panel A
 TRUE_VALUE = 0.5         # eta_t in panels B and C
@@ -76,17 +78,17 @@ def plot_order_size(ax):
     prices = np.linspace(VALUATION - MAX_MARKUP, VALUATION + MAX_MARKUP, 201)
     # Only two quadrants occur: buy orders below V_i and sell orders above it.
     top = BUDGET * 1.15
-    ax.fill_between([VALUATION - MAX_MARKUP, VALUATION], 0, top, color=role_color("buy"), alpha=0.2,
+    ax.fill_between([VALUATION - MAX_MARKUP, VALUATION], 0, top, color=role_color("buy"), alpha=0.15,
                     linewidth=0)
-    ax.fill_between([VALUATION, VALUATION + MAX_MARKUP], -top, 0, color=role_color("sell"), alpha=0.25,
+    ax.fill_between([VALUATION, VALUATION + MAX_MARKUP], -top, 0, color=role_color("sell"), alpha=0.15,
                     linewidth=0)
     for color, r in zip(role_color("levels"), RISK_AVERSIONS):
         ax.plot(prices, optimal_order(prices, VALUATION, r, BUDGET), color=color, label=f"{r}")
     ax.axhline(0, color="gray", linewidth=0.8)
     ax.axvline(VALUATION, color="gray", linestyle="--")
-    ax.text(VALUATION - MAX_MARKUP * 0.1, BUDGET * 0.95, "Buy", color=role_color("buy_label"),
+    ax.text(VALUATION - MAX_MARKUP * 0.1, BUDGET * 0.95, "Buy", color=role_color("buy"),
             ha="right", va="top")
-    ax.text(VALUATION + MAX_MARKUP * 0.1, -BUDGET * 0.95, "Sell", color=role_color("sell_label"),
+    ax.text(VALUATION + MAX_MARKUP * 0.1, -BUDGET * 0.95, "Sell", color=role_color("sell"),
             ha="left", va="bottom")
     ax.text(VALUATION - 0.001, -BUDGET * 0.5, r"$V_i$", ha="right", va="center")
     ax.set(xlim=(VALUATION - MAX_MARKUP, VALUATION + MAX_MARKUP),
@@ -140,7 +142,7 @@ def plot_signals(ax, rng):
                              widths=width * 0.95, patch_artist=True, whis=1.5,
                              flierprops=dict(marker="o", markersize=2),
                              medianprops=dict(color="#333333"))
-            box["boxes"][0].set(facecolor=color, edgecolor="#333333")
+            box["boxes"][0].set(facecolor=color, alpha=BOX_ALPHA, edgecolor="#333333")
     ax.axhspan(1, 2, color="#E5E5E5", zorder=0)
     ax.axhspan(-1, 0, color="#E5E5E5", zorder=0)
     ax.axhline(TRUE_VALUE, color="#555555", linestyle="--")
@@ -148,7 +150,7 @@ def plot_signals(ax, rng):
     ax.set_xticks(range(len(EXPERTISE)), [f"{e:.1f}" for e in EXPERTISE])
     ax.set(xlim=(-0.5, len(EXPERTISE) - 0.5), ylim=(-0.1, 1.1), xlabel="Expertise",
            ylabel="Signal", title="Expertise and Bias: Signal Quality")
-    handles = [plt.Rectangle((0, 0), 1, 1, facecolor=c, edgecolor="#333333")
+    handles = [plt.Rectangle((0, 0), 1, 1, facecolor=c, alpha=BOX_ALPHA, edgecolor="#333333")
                for c in role_color("bias")]
     ax.legend(handles, ["−0.1", "0", "+0.1"], title="Bias", loc="upper center",
               bbox_to_anchor=(0.5, -0.22), ncols=3)
