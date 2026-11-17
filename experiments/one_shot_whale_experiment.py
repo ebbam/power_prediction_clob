@@ -51,7 +51,7 @@ WHALE_RISK_AVERSION = 0.5
 SHOT_PERIOD = 50
 HORIZON = SHOT_PERIOD + 300
 SAMPLE_RUNS = (3, 35, 38)
-RHO = "ρ (whale capital share)"
+RHO = "Whale Capital Share (ρ)"
 CONDITIONS = {"No market imitation": 0.0, "Market imitation = 0.3": 0.3}
 OUTPUT_DIR = Path(__file__).resolve().parents[1]   # repository root
 FIGURES_DIR = OUTPUT_DIR / "figures"

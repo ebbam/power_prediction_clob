@@ -315,11 +315,11 @@ def plot_volume(record, ax_volume, ax_capital, volume="all"):
         ax_volume.plot(np.diff(outstanding), color=role_color("volume"), drawstyle="steps")
         ax_volume.axhline(0, color="#BBBBBB", linewidth=0.6)
         ax_volume.set(ylabel="New contracts\nper period (net)",
-                      title="New Contracts & Capital Locked")
+                      title="New Contracts and Capital Locked")
     else:
         ax_volume.plot(record["traded_volume"], color=role_color("volume"), drawstyle="steps")
         ax_volume.set(ylabel="Traded per\nperiod",
-                      title="Trading Volume & Capital Locked", ylim=(0, None))
+                      title="Trading Volume and Capital Locked", ylim=(0, None))
     ax_volume.tick_params(axis="x", labelbottom=False)
     ax_volume.yaxis.set_major_formatter(
         FuncFormatter(lambda value, _: f"{value / 1000:g}k" if value else "0"))
@@ -352,8 +352,11 @@ def plot_lag_column(sweep, parameter, ax):
     ax.plot(stats.index, stats[0.5], color=role_color("sweep_line"), linewidth=1)
     ax.fill_between(stats.index, stats[0.25], stats[0.75], color=role_color("sweep_line"), alpha=0.25,
                     linewidth=0)
-    ax.set(xlabel=parameter, ylabel="Best-matching lag", ylim=(-0.5, MAX_LAG + 0.5),
+    ax.set(xlabel=SWEEP_LABELS.get(parameter, parameter), ylabel="Best-matching lag", ylim=(-0.5, MAX_LAG + 0.5),
            yticks=range(MAX_LAG + 1))
+
+
+SWEEP_LABELS = {"Stubbornness": "Belief Inertia"}   # display names; SWEEPS keys stay as data keys
 
 
 SWEEP_MEASURES = {          # Figure 2's sweep measures and their titles
@@ -389,7 +392,7 @@ def plot_sweep_column(sweep, parameter, column, ylabel, ax):
     ax.plot(stats.index, stats["mean"], color=role_color("sweep_line"), linewidth=1)
     ax.fill_between(stats.index, stats["mean"] - half_width, stats["mean"] + half_width,
                     color=role_color("sweep_line"), alpha=0.25, linewidth=0)
-    ax.set(xlabel=parameter, ylabel=ylabel)
+    ax.set(xlabel=SWEEP_LABELS.get(parameter, parameter), ylabel=ylabel)
 
 
 def _normal_cdf(x):
@@ -707,7 +710,7 @@ def plot_trader_returns(traders, ax, column="expertise", groups=None, xlabel="Tr
     ax.set_xticks(range(len(labels)), labels)
     ax.set(xlabel=xlabel, title=title)
     _wealth_axis(ax)
-    ax.legend(title="ρ (Whale Capital Share)", loc="upper center", bbox_to_anchor=(0.5, -0.3),
+    ax.legend(title="Whale Capital Share (ρ)", loc="upper center", bbox_to_anchor=(0.5, -0.3),
               ncols=5)
     style_axis(ax)
 
@@ -716,7 +719,7 @@ def profit_colors(n):
     return [role_ramp("rho_ramp")(i / max(n - 1, 1)) for i in range(n)]
 
 
-def rho_colorbar(figure_or_subfigure, ax, shares, label="ρ (Whale Capital Share)"):
+def rho_colorbar(figure_or_subfigure, ax, shares, label="Whale Capital Share (ρ)"):
     """A continuous ρ colour bar under `ax`, in place of a legend of discrete swatches."""
     if ax.get_legend() is not None:
         ax.get_legend().remove()
@@ -851,6 +854,6 @@ def plot_max_error_map(results, ax, figure):
                       extent=[WHALE_HERDING_H[0] - half_h, WHALE_HERDING_H[-1] + half_h,
                               WHALE_HERDING_S[0] - half_s, WHALE_HERDING_S[-1] + half_s])
     ax.set_xticks(WHALE_HERDING_H[::3])
-    ax.set(title="Maximum Market Error", xlabel=r"Herding Strength ($h$)",
-           ylabel=r"Stubbornness ($s$)")
-    figure.colorbar(image, ax=ax, label=r"Maximum $|p_t - \eta|$")
+    ax.set(title="Mean Maximum Market Price Error", xlabel=r"Herding Strength ($h$)",
+           ylabel=r"Belief Inertia ($s$)")
+    figure.colorbar(image, ax=ax, label=r"Mean Maximum $|p_t - \eta|$")
