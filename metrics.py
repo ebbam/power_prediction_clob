@@ -275,7 +275,7 @@ def _plot_ridges(metrics, column, group, ax, xlabel, title, label_format, limits
                   label=str(name))
         ax.axhline(base, color="#BBBBBB", linewidth=0.6)
         median = values.median()
-        ax.vlines(median, base, base + height, color=colors[name], linewidth=1.6)
+        ax.vlines(median, base, base + height, color=colors[name], linewidth=1.6, linestyle=":")
         if show_band:
             ax.vlines(frame["ordinary_band"].iloc[0], base, base + height, color="#888888",
                       linewidth=1, linestyle="--", label="Ordinary band" if row == 0 else None)

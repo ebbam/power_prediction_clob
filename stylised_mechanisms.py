@@ -126,9 +126,9 @@ def plot_stubbornness(ax):
     ax.axhline(INITIAL_BELIEF, color="gray", linestyle=":")
     label_right(ax, TRUE_VALUE, r"$\eta_t$")
     label_right(ax, INITIAL_BELIEF, r"$V_{i,0}$")
-    ax.set(xlim=(0, N_STEPS), ylim=(0, 0.6), xlabel="Time step", ylabel="Market Valuation",
-           title="Stubbornness: Belief Updating")
-    ax.legend(title="Stubbornness", loc="upper center", bbox_to_anchor=(0.5, -0.22), ncols=5)
+    ax.set(xlim=(0, N_STEPS), ylim=(0, 0.6), xlabel="Time Step", ylabel="Market Valuation",
+           title="Belief Inertia: Belief Updating")
+    ax.legend(title="Belief Inertia", loc="upper center", bbox_to_anchor=(0.5, -0.22), ncols=5)
 
 
 def plot_signals(ax, rng):
